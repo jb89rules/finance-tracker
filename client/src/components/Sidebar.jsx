@@ -10,7 +10,7 @@ const links = [
 
 export default function Sidebar() {
   return (
-    <aside className="w-60 shrink-0 bg-surface-800 border-r border-surface-600/60 flex flex-col">
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-surface-600/60 bg-surface-800 md:flex">
       <div className="px-6 py-5 border-b border-surface-600/60">
         <span className="text-lg font-semibold tracking-tight text-slate-100">
           Finance

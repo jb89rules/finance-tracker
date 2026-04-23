@@ -1,5 +1,6 @@
 import { Routes, Route, Outlet } from 'react-router-dom';
 import Sidebar from './components/Sidebar.jsx';
+import BottomNav from './components/BottomNav.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Accounts from './pages/Accounts.jsx';
@@ -12,9 +13,10 @@ function AppLayout() {
   return (
     <div className="flex h-full min-h-screen bg-surface-900 text-slate-100">
       <Sidebar />
-      <main className="flex flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </main>
+      <BottomNav />
     </div>
   );
 }

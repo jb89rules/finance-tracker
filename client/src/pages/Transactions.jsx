@@ -270,41 +270,85 @@ export default function Transactions() {
 
       <SummaryCards transactions={transactions} />
 
-      <div className="mb-4 flex flex-wrap gap-3">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row">
         <input
           type="text"
           placeholder="Search description…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-[200px] flex-1 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+          className="min-w-0 flex-1 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
         />
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <select
-          value={account}
-          onChange={(e) => setAccount(e.target.value)}
-          className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
-        >
-          <option value="">All accounts</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name} — {a.institution}
-            </option>
-          ))}
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500 md:flex-none"
+          >
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500 md:flex-none"
+          >
+            <option value="">All accounts</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} — {a.institution}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-surface-600/60 bg-surface-800">
+      <div className="md:hidden">
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border border-surface-600/60 bg-surface-800 px-4 py-10 text-center text-sm text-slate-500">
+            {transactions.length === 0
+              ? 'No transactions yet. Click Sync to pull from Plaid.'
+              : 'No transactions match your filters.'}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-surface-600/60 bg-surface-800">
+            {filtered.map((t, i) => (
+              <div
+                key={t.id}
+                className={`flex flex-col gap-2 border-b border-surface-600/60 px-4 py-3 last:border-0 ${
+                  i % 2 === 0 ? 'bg-surface-800' : 'bg-surface-700/40'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 text-sm text-slate-100">
+                    {t.description}
+                  </div>
+                  <div
+                    className={`shrink-0 text-sm font-medium tabular-nums ${
+                      t.amount >= 0 ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {currencyFormatter.format(-t.amount)}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-slate-500">{formatDate(t.date)}</div>
+                  <CategoryPicker
+                    value={t.category}
+                    categories={categories}
+                    onChange={(next) => handleCategoryChange(t.id, next)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg border border-surface-600/60 bg-surface-800 md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-surface-600/60 text-left text-xs uppercase tracking-wide text-slate-500">
