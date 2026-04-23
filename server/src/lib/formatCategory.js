@@ -19,7 +19,7 @@ const FRIENDLY_NAMES = {
   FOOD_AND_DRINK_GROCERIES: 'Groceries',
 };
 
-export function formatCategory(raw) {
+function formatCategory(raw) {
   if (!raw) return '';
   if (FRIENDLY_NAMES[raw]) return FRIENDLY_NAMES[raw];
   if (!/^[A-Z][A-Z0-9_]*$/.test(raw)) return raw;
@@ -30,4 +30,5 @@ export function formatCategory(raw) {
     .trim();
 }
 
-export default formatCategory;
+module.exports = { formatCategory };
+module.exports.default = formatCategory;

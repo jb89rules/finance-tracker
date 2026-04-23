@@ -2,6 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { Products, CountryCode } = require('plaid');
 const plaid = require('../lib/plaid');
+const { formatCategory } = require('../lib/formatCategory');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -101,10 +102,11 @@ router.post('/sync', async (req, res) => {
             select: { id: true },
           });
 
-          const category =
+          const rawCategory =
             t.personal_finance_category?.primary ||
             (Array.isArray(t.category) && t.category[0]) ||
             null;
+          const category = rawCategory ? formatCategory(rawCategory) : null;
 
           await prisma.transaction.upsert({
             where: { id: t.transaction_id },
