@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../lib/api.js';
+import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
 
 function formatDate(iso) {
@@ -48,7 +49,7 @@ function CategoryPicker({ value, categories, onChange }) {
         onClick={() => setOpen((o) => !o)}
         className="rounded-full bg-surface-600 px-2.5 py-1 text-xs font-medium text-slate-200 transition-colors hover:bg-surface-500"
       >
-        {value || 'Uncategorized'}
+        {value ? formatCategory(value) : 'Uncategorized'}
       </button>
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 w-60 overflow-hidden rounded-md border border-surface-600/60 bg-surface-700 shadow-lg">
@@ -91,7 +92,7 @@ function CategoryPicker({ value, categories, onChange }) {
                         c === value ? 'text-accent-400' : 'text-slate-200'
                       }`}
                     >
-                      {c}
+                      {formatCategory(c)}
                     </button>
                   ))
                 )}
@@ -287,7 +288,7 @@ export default function Transactions() {
             <option value="">All categories</option>
             {categories.map((c) => (
               <option key={c} value={c}>
-                {c}
+                {formatCategory(c)}
               </option>
             ))}
           </select>

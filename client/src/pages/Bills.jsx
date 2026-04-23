@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api.js';
+import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -139,7 +140,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
             <span className={`ml-2 font-medium ${style.text}`}>{dueText(bill)}</span>
             {bill.category && (
               <span className="ml-2 rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
-                {bill.category}
+                {formatCategory(bill.category)}
               </span>
             )}
           </div>
@@ -154,7 +155,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
             <div className="truncate font-medium text-slate-100">{bill.name}</div>
             {bill.category && (
               <span className="rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
-                {bill.category}
+                {formatCategory(bill.category)}
               </span>
             )}
           </div>
@@ -424,7 +425,7 @@ function DetectBillsModal({ onClose, onAddSelected }) {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-slate-100">{s.name}</div>
                       <div className="text-xs text-slate-500">
-                        {s.category || 'Uncategorized'} · Due on the {ordinal(s.dueDay)}
+                        {s.category ? formatCategory(s.category) : 'Uncategorized'} · Due on the {ordinal(s.dueDay)}
                       </div>
                     </div>
                     <div className="shrink-0 text-sm font-medium tabular-nums text-slate-200">

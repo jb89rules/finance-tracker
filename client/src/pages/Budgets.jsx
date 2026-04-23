@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api.js';
+import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -94,7 +95,7 @@ function BudgetCard({ budget, onSaveLimit, onDelete }) {
   return (
     <div className="rounded-lg border border-surface-600/60 bg-surface-800 p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="font-medium text-slate-100">{budget.category}</div>
+        <div className="font-medium text-slate-100">{formatCategory(budget.category)}</div>
         <div className="flex gap-1">
           <button
             type="button"

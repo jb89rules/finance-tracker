@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api.js';
+import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -92,7 +93,7 @@ function BudgetRow({ budget }) {
   return (
     <div className="border-b border-surface-600/60 py-2.5 last:border-0">
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <div className="truncate text-sm text-slate-200">{budget.category}</div>
+        <div className="truncate text-sm text-slate-200">{formatCategory(budget.category)}</div>
         <div className="shrink-0 text-xs text-slate-400 tabular-nums">
           {currencyFormatter.format(budget.spent)}
           <span className="text-slate-500"> / {currencyFormatter.format(budget.limit)}</span>
@@ -134,7 +135,7 @@ function CategoryRow({ item }) {
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <div className="truncate text-sm text-slate-200">{item.category}</div>
+        <div className="truncate text-sm text-slate-200">{formatCategory(item.category)}</div>
         <div className="shrink-0 text-xs tabular-nums text-slate-400">
           {currencyFormatter.format(item.amount)}
           <span className="ml-1 text-slate-500">

@@ -106,7 +106,7 @@ function CalendarIcon() {
 const links = [
   { to: '/', label: 'Dashboard', Icon: HomeIcon, end: true },
   { to: '/accounts', label: 'Accounts', Icon: BankIcon },
-  { to: '/transactions', label: 'Activity', Icon: ListIcon },
+  { to: '/transactions', label: 'Transactions', Icon: ListIcon },
   { to: '/budgets', label: 'Budgets', Icon: ChartIcon },
   { to: '/bills', label: 'Bills', Icon: CalendarIcon },
 ];
