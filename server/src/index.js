@@ -18,6 +18,9 @@ app.use(
 );
 app.use(express.json());
 
+const plaidRouter = require('./routes/plaid');
+app.use('/api/plaid', plaidRouter);
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
