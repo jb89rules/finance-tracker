@@ -18,18 +18,23 @@ app.use(
 );
 app.use(express.json());
 
+const authRouter = require('./routes/auth');
 const plaidRouter = require('./routes/plaid');
 const transactionsRouter = require('./routes/transactions');
 const budgetsRouter = require('./routes/budgets');
 const billsRouter = require('./routes/bills');
-app.use('/api/plaid', plaidRouter);
-app.use('/api/transactions', transactionsRouter);
-app.use('/api/budgets', budgetsRouter);
-app.use('/api/bills', billsRouter);
+const { authMiddleware } = require('./middleware/auth');
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+
+app.use('/api/auth', authRouter);
+
+app.use('/api/plaid', authMiddleware, plaidRouter);
+app.use('/api/transactions', authMiddleware, transactionsRouter);
+app.use('/api/budgets', authMiddleware, budgetsRouter);
+app.use('/api/bills', authMiddleware, billsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
