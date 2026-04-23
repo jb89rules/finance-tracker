@@ -23,6 +23,7 @@ const plaidRouter = require('./routes/plaid');
 const transactionsRouter = require('./routes/transactions');
 const budgetsRouter = require('./routes/budgets');
 const billsRouter = require('./routes/bills');
+const dashboardRouter = require('./routes/dashboard');
 const { authMiddleware } = require('./middleware/auth');
 
 app.get('/health', (req, res) => {
@@ -35,6 +36,7 @@ app.use('/api/plaid', authMiddleware, plaidRouter);
 app.use('/api/transactions', authMiddleware, transactionsRouter);
 app.use('/api/budgets', authMiddleware, budgetsRouter);
 app.use('/api/bills', authMiddleware, billsRouter);
+app.use('/api/dashboard', authMiddleware, dashboardRouter);
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);

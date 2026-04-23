@@ -1,51 +1,9 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { computeBillStatus } = require('../lib/billStatus');
 
 const prisma = new PrismaClient();
 const router = express.Router();
-
-const MS_PER_DAY = 86400000;
-
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function resolveDueDate(year, month, dueDay) {
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  return new Date(year, month, Math.min(dueDay, lastDay));
-}
-
-function computeStatus(dueDay) {
-  const today = startOfToday();
-  const y = today.getFullYear();
-  const m = today.getMonth();
-
-  const thisMonthDue = resolveDueDate(y, m, dueDay);
-  const overdueThisMonth = thisMonthDue < today;
-
-  let nextDue;
-  if (overdueThisMonth) {
-    const nm = m === 11 ? 0 : m + 1;
-    const ny = m === 11 ? y + 1 : y;
-    nextDue = resolveDueDate(ny, nm, dueDay);
-  } else {
-    nextDue = thisMonthDue;
-  }
-
-  const daysUntilDue = Math.round((nextDue - today) / MS_PER_DAY);
-  const daysOverdue = overdueThisMonth
-    ? Math.round((today - thisMonthDue) / MS_PER_DAY)
-    : 0;
-
-  let status;
-  if (overdueThisMonth) status = 'overdue';
-  else if (daysUntilDue <= 7) status = 'due-soon';
-  else status = 'upcoming';
-
-  return { daysUntilDue, daysOverdue, status };
-}
 
 router.get('/detect', async (req, res) => {
   const ninetyDaysAgo = new Date();
@@ -112,7 +70,7 @@ router.get('/', async (req, res) => {
     const bills = await prisma.bill.findMany({
       orderBy: { dueDay: 'asc' },
     });
-    const enriched = bills.map((b) => ({ ...b, ...computeStatus(b.dueDay) }));
+    const enriched = bills.map((b) => ({ ...b, ...computeBillStatus(b.dueDay) }));
     res.json(enriched);
   } catch (err) {
     console.error('[bills] list', err.message);
@@ -191,7 +149,7 @@ router.post('/', async (req, res) => {
         isActive: data.isActive ?? true,
       },
     });
-    res.status(201).json({ ...created, ...computeStatus(created.dueDay) });
+    res.status(201).json({ ...created, ...computeBillStatus(created.dueDay) });
   } catch (err) {
     console.error('[bills] create', err.message);
     res.status(500).json({ error: 'Failed to create bill' });
@@ -210,7 +168,7 @@ router.patch('/:id', async (req, res) => {
 
   try {
     const updated = await prisma.bill.update({ where: { id }, data });
-    res.json({ ...updated, ...computeStatus(updated.dueDay) });
+    res.json({ ...updated, ...computeBillStatus(updated.dueDay) });
   } catch (err) {
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Bill not found' });
