@@ -4,7 +4,7 @@ const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatu
 const {
   EXCLUDED_CATEGORIES,
   NON_TRANSFER_CATEGORY,
-  NON_TRANSFER_DESCRIPTION,
+  getNonTransferDescriptionFilter,
 } = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
@@ -29,6 +29,7 @@ function pctChange(current, previous) {
 
 router.get('/', async (req, res) => {
   try {
+    const NON_TRANSFER_DESCRIPTION = await getNonTransferDescriptionFilter(prisma);
     const now = new Date();
     const month = now.getMonth() + 1;
     const year = now.getFullYear();

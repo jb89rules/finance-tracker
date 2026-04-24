@@ -2,7 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const {
   EXCLUDED_CATEGORIES,
-  NON_TRANSFER_DESCRIPTION,
+  getNonTransferDescriptionFilter,
 } = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
@@ -19,6 +19,7 @@ router.get('/', async (req, res) => {
   const { month, year } = parseMonthYear(req);
 
   try {
+    const NON_TRANSFER_DESCRIPTION = await getNonTransferDescriptionFilter(prisma);
     const budgets = await prisma.budget.findMany({
       where: { month, year },
       orderBy: { category: 'asc' },

@@ -7,6 +7,7 @@ import Accounts from './pages/Accounts.jsx';
 import Transactions from './pages/Transactions.jsx';
 import Budgets from './pages/Budgets.jsx';
 import Bills from './pages/Bills.jsx';
+import Settings from './pages/Settings.jsx';
 import Login from './pages/Login.jsx';
 
 function AppLayout() {
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/budgets" element={<Budgets />} />
         <Route path="/bills" element={<Bills />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
   );

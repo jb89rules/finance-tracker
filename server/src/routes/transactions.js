@@ -6,13 +6,11 @@ const router = express.Router();
 
 router.get('/categories', async (req, res) => {
   try {
-    const rows = await prisma.transaction.findMany({
-      where: { category: { not: null } },
-      distinct: ['category'],
-      select: { category: true },
-      orderBy: { category: 'asc' },
+    const rows = await prisma.category.findMany({
+      orderBy: { name: 'asc' },
+      select: { name: true },
     });
-    res.json(rows.map((r) => r.category));
+    res.json(rows.map((r) => r.name));
   } catch (err) {
     console.error('[transactions] categories', err.message);
     res.status(500).json({ error: 'Failed to fetch categories' });

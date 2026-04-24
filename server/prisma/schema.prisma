@@ -38,6 +38,20 @@ model Transaction {
   splits       TransactionSplit[]
 }
 
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String   @default("#6366f1")
+  type      String   @default("expense")
+  createdAt DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model TransactionSplit {
   id            String      @id @default(uuid())
   transactionId String

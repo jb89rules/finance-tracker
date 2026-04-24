@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { usePlaidLink } from 'react-plaid-link';
 import api from '../lib/api.js';
 import PageShell from '../components/PageShell.jsx';
@@ -160,6 +161,15 @@ export default function Accounts() {
           {error}
         </div>
       )}
+
+      <div className="mb-4 text-right text-xs">
+        <Link
+          to="/settings"
+          className="text-accent-400 hover:text-accent-300"
+        >
+          Manage connections → Settings
+        </Link>
+      </div>
 
       <div className="mb-6 rounded-lg border border-surface-600/60 bg-surface-800 px-5 py-4">
         <div className="text-xs uppercase tracking-wide text-slate-500">

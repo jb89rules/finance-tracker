@@ -297,6 +297,38 @@ router.get('/balances', async (req, res) => {
   }
 });
 
+router.post('/disconnect-item', async (req, res) => {
+  const { itemId } = req.body || {};
+  if (typeof itemId !== 'string' || !itemId.trim()) {
+    return res.status(400).json({ error: 'itemId is required' });
+  }
+
+  try {
+    const sample = await prisma.account.findFirst({
+      where: { itemId, source: 'plaid' },
+      select: { accessToken: true },
+    });
+
+    if (sample?.accessToken) {
+      try {
+        await plaid.itemRemove({ access_token: sample.accessToken });
+      } catch (err) {
+        console.warn('[plaid] itemRemove failed, continuing', err.response?.data || err.message);
+      }
+    }
+
+    await prisma.account.updateMany({
+      where: { itemId, source: 'plaid' },
+      data: { accessToken: null, itemId: null },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[plaid] disconnect-item', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to disconnect item' });
+  }
+});
+
 router.get('/accounts', async (req, res) => {
   try {
     const accounts = await prisma.account.findMany({
