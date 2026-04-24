@@ -94,15 +94,28 @@ router.get('/', async (req, res) => {
               description: { contains: name, mode: 'insensitive' },
             });
           }
-          const agg = await prisma.transaction.aggregate({
+          const unsplit = await prisma.transaction.aggregate({
             where: {
               date: { gte: thisMonthStart, lt: thisMonthEnd },
               amount: { gt: 0 },
+              splits: { none: {} },
               OR: orClauses,
             },
             _sum: { amount: true },
           });
-          return { ...b, spent: agg._sum.amount || 0 };
+          const fromSplits = await prisma.transactionSplit.aggregate({
+            where: {
+              category: b.category,
+              transaction: {
+                date: { gte: thisMonthStart, lt: thisMonthEnd },
+                amount: { gt: 0 },
+              },
+            },
+            _sum: { amount: true },
+          });
+          const spent =
+            (unsplit._sum.amount || 0) + (fromSplits._sum.amount || 0);
+          return { ...b, spent };
         })
       );
     }

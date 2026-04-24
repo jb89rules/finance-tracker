@@ -20,15 +20,26 @@ model Account {
 }
 
 model Transaction {
-  id          String   @id @default(uuid())
+  id          String             @id @default(uuid())
   accountId   String
-  account     Account  @relation(fields: [accountId], references: [id])
+  account     Account            @relation(fields: [accountId], references: [id])
   date        DateTime
   description String
   amount      Float
   category    String?
   source      String // "plaid" | "finicity" | "manual"
-  createdAt   DateTime @default(now())
+  createdAt   DateTime           @default(now())
+  splits      TransactionSplit[]
+}
+
+model TransactionSplit {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  amount        Float
+  category      String
+  note          String?
+  createdAt     DateTime    @default(now())
 }
 
 model Budget {
