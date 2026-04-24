@@ -505,7 +505,7 @@ function SplitEditorModal({ transaction, categories, onClose, onSaved, onRemoved
   );
 }
 
-function SummaryCards({ transactions }) {
+function SummaryCards({ transactions, filtersActive }) {
   const stats = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -526,19 +526,21 @@ function SummaryCards({ transactions }) {
     return { spending, income, count: thisMonth.length };
   }, [transactions]);
 
+  const subtitle = filtersActive ? 'Filtered · This month' : 'This month';
+
   const cards = [
     {
-      label: 'Spending this month',
+      label: 'Spending',
       value: currencyFormatter.format(stats.spending),
       color: 'text-red-400',
     },
     {
-      label: 'Income this month',
+      label: 'Income',
       value: currencyFormatter.format(stats.income),
       color: 'text-emerald-400',
     },
     {
-      label: 'Transactions this month',
+      label: 'Transactions',
       value: stats.count.toString(),
       color: 'text-slate-100',
     },
@@ -556,6 +558,13 @@ function SummaryCards({ transactions }) {
           </div>
           <div className={`mt-1 text-xl font-semibold ${c.color}`}>
             {c.value}
+          </div>
+          <div
+            className={`mt-1 text-[10px] uppercase tracking-wide ${
+              filtersActive ? 'text-accent-400' : 'text-slate-500'
+            }`}
+          >
+            {subtitle}
           </div>
         </div>
       ))}
@@ -607,6 +616,8 @@ export default function Transactions() {
     loadCategories();
     loadAccounts();
   }, [loadTransactions, loadCategories, loadAccounts]);
+
+  const filtersActive = Boolean(search.trim() || category || account);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -688,7 +699,10 @@ export default function Transactions() {
         </div>
       )}
 
-      <SummaryCards transactions={transactions} />
+      <SummaryCards
+        transactions={filtersActive ? filtered : transactions}
+        filtersActive={filtersActive}
+      />
 
       <div className="mb-4 flex flex-col gap-3 md:flex-row">
         <input
