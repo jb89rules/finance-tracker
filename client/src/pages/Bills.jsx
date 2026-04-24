@@ -96,7 +96,144 @@ function Toggle({ value, onChange, title }) {
   );
 }
 
-function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
+function LinkPaymentModal({ bill, onClose, onLinked }) {
+  const [txns, setTxns] = useState([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/api/transactions');
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 30);
+        setTxns(
+          data.filter((t) => new Date(t.date) >= cutoff && t.amount > 0)
+        );
+      } catch (e) {
+        setError('Failed to load transactions');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = txns.filter((t) => {
+    if (!q) return true;
+    const hay = `${t.description} ${t.merchantName || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const handleSelect = async (txn) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/bills/${bill.id}/link-transaction`, {
+        transactionId: txn.id,
+      });
+      onLinked();
+    } catch (e) {
+      setError('Failed to link');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-30 flex bg-black/60 md:items-center md:justify-center md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-full w-full flex-col bg-surface-800 md:h-auto md:max-h-[80vh] md:max-w-lg md:rounded-lg md:border md:border-surface-600/60 md:shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="border-b border-surface-600/60 px-5 py-4">
+          <div className="text-lg font-semibold text-slate-100">Link payment</div>
+          <div className="mt-1 truncate text-sm text-slate-400">
+            for {bill.name}
+          </div>
+        </header>
+
+        <div className="border-b border-surface-600/60 px-5 py-3">
+          <input
+            type="text"
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search transactions…"
+            className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+          ) : error ? (
+            <div className="m-4 rounded-md border border-red-700/50 bg-red-900/40 px-4 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-500">
+              {txns.length === 0
+                ? 'No spending transactions in the last 30 days.'
+                : 'No matches.'}
+            </div>
+          ) : (
+            <ul className="divide-y divide-surface-600/60">
+              {filtered.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(t)}
+                    disabled={saving}
+                    className="w-full px-5 py-3 text-left transition-colors hover:bg-surface-700 disabled:opacity-50"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-slate-100">
+                          {t.merchantName || t.description}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {formatShortDate(t.date)}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-sm font-medium tabular-nums text-slate-100">
+                        {currencyFormatter.format(t.amount)}
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-surface-600/60 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnlinkPayment }) {
   const style = STATUS_STYLES[bill.status] || STATUS_STYLES.upcoming;
   const isPaid = bill.status === 'paid';
   const opacityClass = !bill.isActive ? 'opacity-50' : isPaid ? 'opacity-75' : '';
@@ -153,11 +290,27 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
                     Paid {formatShortDate(bill.paidDate)}
                   </span>
                 )}
+                {bill.linkedTransactionId && (
+                  <button
+                    type="button"
+                    onClick={onUnlinkPayment}
+                    className="ml-2 text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                  >
+                    Unlink
+                  </button>
+                )}
               </>
             ) : (
               <>
                 <span className="text-slate-500">Due {ordinal(bill.dueDay)}</span>
                 <span className={`ml-2 font-medium ${style.text}`}>{dueText(bill)}</span>
+                <button
+                  type="button"
+                  onClick={onLinkPayment}
+                  className="ml-2 text-xs text-accent-400 underline-offset-2 hover:text-accent-300 hover:underline"
+                >
+                  Link payment
+                </button>
               </>
             )}
             {bill.category && (
@@ -204,11 +357,27 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
                   Paid {formatShortDate(bill.paidDate)}
                 </div>
               )}
+              {bill.linkedTransactionId && (
+                <button
+                  type="button"
+                  onClick={onUnlinkPayment}
+                  className="mt-0.5 text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                >
+                  Unlink
+                </button>
+              )}
             </>
           ) : (
             <>
               <div className="text-xs text-slate-500">Due on the {ordinal(bill.dueDay)}</div>
               <div className={`text-xs font-medium ${style.text}`}>{dueText(bill)}</div>
+              <button
+                type="button"
+                onClick={onLinkPayment}
+                className="mt-0.5 text-xs text-accent-400 underline-offset-2 hover:text-accent-300 hover:underline"
+              >
+                Link payment
+              </button>
             </>
           )}
         </div>
@@ -226,6 +395,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
   const [dueDay, setDueDay] = useState(
     initial?.dueDay !== undefined ? String(initial.dueDay) : ''
   );
+  const [matchKeyword, setMatchKeyword] = useState(initial?.matchKeyword ?? '');
   const [category, setCategory] = useState(initial?.category ?? '');
   const [budgetCategory, setBudgetCategory] = useState(initial?.budgetCategory ?? '');
   const [budgetCategoryTouched, setBudgetCategoryTouched] = useState(
@@ -306,6 +476,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     try {
       await onSubmit({
         name: name.trim(),
+        matchKeyword: matchKeyword.trim() || null,
         amount: amountNum,
         dueDay: dayNum,
         category: category.trim() || null,
@@ -335,7 +506,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-              Name
+              Display name
             </label>
             <input
               autoFocus
@@ -344,6 +515,21 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
               placeholder="e.g. Netflix"
               className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+              Match keyword
+            </label>
+            <input
+              value={matchKeyword}
+              onChange={(e) => setMatchKeyword(e.target.value)}
+              placeholder="e.g. NETFLIX.COM"
+              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Used to find matching payments in your transactions. Defaults to bill name if empty.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -470,6 +656,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
 function DetectBillsModal({ onClose, onAddSelected }) {
   const [loading, setLoading] = useState(true);
   const [suggestions, setSuggestions] = useState([]);
+  const [displayNames, setDisplayNames] = useState({});
   const [selected, setSelected] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -505,10 +692,18 @@ function DetectBillsModal({ onClose, onAddSelected }) {
     });
   };
 
+  const setName = (i, value) => {
+    setDisplayNames((prev) => ({ ...prev, [i]: value }));
+  };
+
   const handleAdd = async () => {
     setSaving(true);
     try {
-      const picks = [...selected].map((i) => suggestions[i]);
+      const picks = [...selected].map((i) => {
+        const s = suggestions[i];
+        const displayName = (displayNames[i] ?? s.name).trim() || s.name;
+        return { ...s, name: displayName, matchKeyword: s.matchKeyword || s.name };
+      });
       await onAddSelected(picks);
     } catch (e) {
       setError('Failed to add bills');
@@ -547,24 +742,35 @@ function DetectBillsModal({ onClose, onAddSelected }) {
           ) : (
             <ul className="space-y-1">
               {suggestions.map((s, i) => (
-                <li key={`${s.name}-${i}`}>
-                  <label className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 transition-colors hover:bg-surface-700">
+                <li
+                  key={`${s.name}-${i}`}
+                  className="rounded-md px-3 py-2 transition-colors hover:bg-surface-700"
+                >
+                  <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       checked={selected.has(i)}
                       onChange={() => toggle(i)}
                       className="h-4 w-4 rounded border-surface-500 bg-surface-700 text-accent-500 focus:ring-accent-500"
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm text-slate-100">{s.name}</div>
-                      <div className="text-xs text-slate-500">
-                        {s.category ? formatCategory(s.category) : 'Uncategorized'} · Due on the {ordinal(s.dueDay)}
-                      </div>
-                    </div>
+                    <input
+                      type="text"
+                      value={displayNames[i] ?? s.name}
+                      onChange={(e) => setName(i, e.target.value)}
+                      placeholder="Display name"
+                      className="min-w-0 flex-1 rounded bg-surface-800 px-2 py-1 text-sm text-slate-100 outline-none ring-1 ring-surface-600 focus:ring-accent-500"
+                    />
                     <div className="shrink-0 text-sm font-medium tabular-nums text-slate-200">
                       {currencyFormatter.format(s.amount)}
                     </div>
-                  </label>
+                  </div>
+                  <div className="mt-1 pl-7 text-xs text-slate-500">
+                    <span className="text-slate-400">{s.matchKeyword || s.name}</span>
+                    {' · '}
+                    {s.category ? formatCategory(s.category) : 'Uncategorized'}
+                    {' · Due on the '}
+                    {ordinal(s.dueDay)}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -603,6 +809,7 @@ export default function Bills() {
   const [categories, setCategories] = useState([]);
   const [formState, setFormState] = useState(null);
   const [detectOpen, setDetectOpen] = useState(false);
+  const [linkPaymentBill, setLinkPaymentBill] = useState(null);
   const [error, setError] = useState(null);
 
   const loadBills = useCallback(async () => {
@@ -677,6 +884,7 @@ export default function Bills() {
     for (const p of picks) {
       await api.post('/api/bills', {
         name: p.name,
+        matchKeyword: p.matchKeyword || p.name,
         amount: p.amount,
         dueDay: p.dueDay,
         category: p.category || null,
@@ -685,6 +893,20 @@ export default function Bills() {
     }
     setDetectOpen(false);
     await loadBills();
+  };
+
+  const handleLinked = async () => {
+    setLinkPaymentBill(null);
+    await loadBills();
+  };
+
+  const handleUnlinkPayment = async (id) => {
+    try {
+      await api.delete(`/api/bills/${id}/link-transaction`);
+      await loadBills();
+    } catch (e) {
+      setError('Failed to unlink payment');
+    }
   };
 
   const headerActions = (
@@ -776,6 +998,8 @@ export default function Bills() {
               onToggleActive={(next) => handleToggleActive(b.id, next)}
               onEdit={() => setFormState({ mode: 'edit', bill: b })}
               onDelete={() => handleDelete(b.id)}
+              onLinkPayment={() => setLinkPaymentBill(b)}
+              onUnlinkPayment={() => handleUnlinkPayment(b.id)}
             />
           ))}
         </div>
@@ -798,6 +1022,14 @@ export default function Bills() {
         <DetectBillsModal
           onClose={() => setDetectOpen(false)}
           onAddSelected={handleAddDetected}
+        />
+      )}
+
+      {linkPaymentBill && (
+        <LinkPaymentModal
+          bill={linkPaymentBill}
+          onClose={() => setLinkPaymentBill(null)}
+          onLinked={handleLinked}
         />
       )}
     </PageShell>

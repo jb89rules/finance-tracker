@@ -51,6 +51,7 @@ router.get('/detect', async (req, res) => {
 
       suggestions.push({
         name: similar[0].description,
+        matchKeyword: similar[0].description,
         amount: Math.round(avg * 100) / 100,
         dueDay: mostCommonDay,
         category: similar[0].category || null,
@@ -133,6 +134,26 @@ function validateBillInput(body, { partial }) {
     }
   }
 
+  if (body.matchKeyword !== undefined) {
+    if (body.matchKeyword === null || body.matchKeyword === '') {
+      data.matchKeyword = null;
+    } else if (typeof body.matchKeyword !== 'string') {
+      errors.push('matchKeyword must be a string or null');
+    } else {
+      data.matchKeyword = body.matchKeyword.trim() || null;
+    }
+  }
+
+  if (body.linkedTransactionId !== undefined) {
+    if (body.linkedTransactionId === null || body.linkedTransactionId === '') {
+      data.linkedTransactionId = null;
+    } else if (typeof body.linkedTransactionId !== 'string') {
+      errors.push('linkedTransactionId must be a string or null');
+    } else {
+      data.linkedTransactionId = body.linkedTransactionId.trim() || null;
+    }
+  }
+
   if (body.paymentWindowDays !== undefined) {
     if (
       !Number.isInteger(body.paymentWindowDays) ||
@@ -166,6 +187,8 @@ router.post('/', async (req, res) => {
     const created = await prisma.bill.create({
       data: {
         name: data.name,
+        matchKeyword: data.matchKeyword ?? null,
+        linkedTransactionId: data.linkedTransactionId ?? null,
         amount: data.amount,
         dueDay: data.dueDay,
         category: data.category ?? null,
@@ -214,6 +237,54 @@ router.delete('/:id', async (req, res) => {
     }
     console.error('[bills] delete', err.message);
     res.status(500).json({ error: 'Failed to delete bill' });
+  }
+});
+
+router.post('/:id/link-transaction', async (req, res) => {
+  const { id } = req.params;
+  const { transactionId } = req.body || {};
+
+  if (typeof transactionId !== 'string' || !transactionId.trim()) {
+    return res.status(400).json({ error: 'transactionId is required' });
+  }
+
+  try {
+    const txn = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: { id: true },
+    });
+    if (!txn) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    const updated = await prisma.bill.update({
+      where: { id },
+      data: { linkedTransactionId: transactionId },
+    });
+    res.json({ ...updated, ...computeBillStatus(updated.dueDay) });
+  } catch (err) {
+    if (err.code === 'P2025') {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    console.error('[bills] link-transaction', err.message);
+    res.status(500).json({ error: 'Failed to link transaction' });
+  }
+});
+
+router.delete('/:id/link-transaction', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const updated = await prisma.bill.update({
+      where: { id },
+      data: { linkedTransactionId: null },
+    });
+    res.json({ ...updated, ...computeBillStatus(updated.dueDay) });
+  } catch (err) {
+    if (err.code === 'P2025') {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    console.error('[bills] unlink-transaction', err.message);
+    res.status(500).json({ error: 'Failed to unlink transaction' });
   }
 });
 

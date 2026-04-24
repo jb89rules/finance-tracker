@@ -62,6 +62,13 @@ function descriptionMatchesBillName(description, billName) {
 }
 
 async function findBillPayment(prisma, bill) {
+  if (bill.linkedTransactionId) {
+    const linked = await prisma.transaction.findUnique({
+      where: { id: bill.linkedTransactionId },
+    });
+    return linked || null;
+  }
+
   const mostRecentDue = computeMostRecentDue(bill.dueDay);
   const windowStart = new Date(mostRecentDue);
   windowStart.setDate(windowStart.getDate() - bill.paymentWindowDays);
@@ -81,8 +88,9 @@ async function findBillPayment(prisma, bill) {
     orderBy: { date: 'desc' },
   });
 
+  const needle = bill.matchKeyword || bill.name;
   return (
-    candidates.find((t) => descriptionMatchesBillName(t.description, bill.name)) ||
+    candidates.find((t) => descriptionMatchesBillName(t.description, needle)) ||
     null
   );
 }

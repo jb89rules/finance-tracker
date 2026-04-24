@@ -57,13 +57,15 @@ model Budget {
 }
 
 model Bill {
-  id                String   @id @default(uuid())
-  name              String
-  amount            Float
-  dueDay            Int
-  category          String?
-  budgetCategory    String?
-  paymentWindowDays Int      @default(3)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
+  id                  String   @id @default(uuid())
+  name                String
+  matchKeyword        String?
+  linkedTransactionId String?
+  amount              Float
+  dueDay              Int
+  category            String?
+  budgetCategory      String?
+  paymentWindowDays   Int      @default(3)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
 }
