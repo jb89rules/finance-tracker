@@ -93,7 +93,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
   const muted = !bill.isActive;
 
   const actions = (
-    <div className="flex min-w-[140px] shrink-0 items-center justify-end gap-4">
+    <div className="flex items-center shrink-0" style={{ gap: '20px', minWidth: '140px' }}>
       <Toggle
         value={bill.isActive}
         onChange={(next) => onToggleActive(next)}
