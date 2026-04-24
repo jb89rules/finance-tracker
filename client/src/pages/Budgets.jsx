@@ -218,19 +218,19 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
               Category
             </label>
-            <input
-              list="budget-categories"
+            <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              placeholder="Type or select a category"
               autoFocus
-              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
-            />
-            <datalist id="budget-categories">
+              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+            >
+              <option value="">Select a category</option>
               {categories.map((c) => (
-                <option key={c} value={c} />
+                <option key={c} value={c}>
+                  {formatCategory(c)}
+                </option>
               ))}
-            </datalist>
+            </select>
           </div>
 
           <div>
@@ -300,8 +300,8 @@ export default function Budgets() {
 
   const loadCategories = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/transactions/categories');
-      setCategories(data);
+      const { data } = await api.get('/api/categories');
+      setCategories(data.map((c) => c.name));
     } catch (e) {
       /* non-fatal */
     }

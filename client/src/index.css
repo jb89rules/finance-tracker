@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  overflow-x: hidden;
+  overscroll-behavior: none;
+}
+
 html,
 body,
 #root {
@@ -10,4 +20,20 @@ body,
 
 body {
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+button,
+nav,
+.bottom-nav {
+  user-select: none;
+  -webkit-user-select: none;
 }
