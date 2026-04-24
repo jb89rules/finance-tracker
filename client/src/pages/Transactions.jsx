@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
-import { EXCLUDED_CATEGORIES } from '../lib/excludedCategories.js';
+import { EXCLUDED_CATEGORIES, isTransferTransaction } from '../lib/excludedCategories.js';
 import PageShell from '../components/PageShell.jsx';
 
 function formatDate(iso) {
@@ -514,9 +514,7 @@ function SummaryCards({ transactions, filtersActive }) {
       const d = new Date(t.date);
       return d.getFullYear() === year && d.getMonth() === month;
     });
-    const nonTransfer = thisMonth.filter(
-      (t) => !EXCLUDED_CATEGORIES.includes(t.category)
-    );
+    const nonTransfer = thisMonth.filter((t) => !isTransferTransaction(t));
     const spending = nonTransfer
       .filter((t) => t.amount > 0)
       .reduce((sum, t) => sum + t.amount, 0);

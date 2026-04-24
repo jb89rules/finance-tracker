@@ -1,6 +1,9 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
-const { EXCLUDED_CATEGORIES } = require('../lib/excludedCategories');
+const {
+  EXCLUDED_CATEGORIES,
+  NON_TRANSFER_DESCRIPTION,
+} = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -64,6 +67,7 @@ router.get('/', async (req, res) => {
             date: { gte: startDate, lt: endDate },
             amount: { gt: 0 },
             splits: { none: {} },
+            ...NON_TRANSFER_DESCRIPTION,
             AND: [
               { OR: orClauses },
               {
@@ -83,6 +87,7 @@ router.get('/', async (req, res) => {
             transaction: {
               date: { gte: startDate, lt: endDate },
               amount: { gt: 0 },
+              ...NON_TRANSFER_DESCRIPTION,
             },
           },
           _sum: { amount: true },

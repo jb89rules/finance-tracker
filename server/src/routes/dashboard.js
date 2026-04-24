@@ -1,17 +1,14 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
-const { EXCLUDED_CATEGORIES } = require('../lib/excludedCategories');
+const {
+  EXCLUDED_CATEGORIES,
+  NON_TRANSFER_CATEGORY,
+  NON_TRANSFER_DESCRIPTION,
+} = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
 const router = express.Router();
-
-const NON_TRANSFER_CATEGORY = {
-  OR: [
-    { category: null },
-    { category: { notIn: EXCLUDED_CATEGORIES } },
-  ],
-};
 
 function monthRange(offset = 0) {
   const now = new Date();
@@ -44,21 +41,25 @@ router.get('/', async (req, res) => {
           date: { gte: thisMonthStart, lt: thisMonthEnd },
           amount: { gt: 0 },
           ...NON_TRANSFER_CATEGORY,
+          ...NON_TRANSFER_DESCRIPTION,
         }),
         sumAmounts({
           date: { gte: lastMonthStart, lt: lastMonthEnd },
           amount: { gt: 0 },
           ...NON_TRANSFER_CATEGORY,
+          ...NON_TRANSFER_DESCRIPTION,
         }),
         sumAmounts({
           date: { gte: thisMonthStart, lt: thisMonthEnd },
           amount: { lt: 0 },
           ...NON_TRANSFER_CATEGORY,
+          ...NON_TRANSFER_DESCRIPTION,
         }),
         sumAmounts({
           date: { gte: lastMonthStart, lt: lastMonthEnd },
           amount: { lt: 0 },
           ...NON_TRANSFER_CATEGORY,
+          ...NON_TRANSFER_DESCRIPTION,
         }),
       ]);
 
@@ -114,6 +115,7 @@ router.get('/', async (req, res) => {
               date: { gte: thisMonthStart, lt: thisMonthEnd },
               amount: { gt: 0 },
               splits: { none: {} },
+              ...NON_TRANSFER_DESCRIPTION,
               AND: [
                 { OR: orClauses },
                 {
@@ -132,6 +134,7 @@ router.get('/', async (req, res) => {
               transaction: {
                 date: { gte: thisMonthStart, lt: thisMonthEnd },
                 amount: { gt: 0 },
+                ...NON_TRANSFER_DESCRIPTION,
               },
             },
             _sum: { amount: true },
@@ -159,6 +162,7 @@ router.get('/', async (req, res) => {
         date: { gte: thisMonthStart, lt: thisMonthEnd },
         amount: { gt: 0 },
         category: { not: null, notIn: EXCLUDED_CATEGORIES },
+        ...NON_TRANSFER_DESCRIPTION,
       },
       _sum: { amount: true },
       orderBy: { _sum: { amount: 'desc' } },
