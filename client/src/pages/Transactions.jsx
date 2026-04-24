@@ -824,7 +824,7 @@ function SplitEditorModal({ transaction, categories, onClose, onSaved, onRemoved
   );
 }
 
-function SummaryCards({ transactions, filtersActive }) {
+function SummaryCards({ transactions, filtersActive, excludedDescriptions }) {
   const stats = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -834,7 +834,11 @@ function SummaryCards({ transactions, filtersActive }) {
       return d.getFullYear() === year && d.getMonth() === month;
     });
     const nonTransfer = thisMonth.filter(
-      (t) => !isTransferTransaction({ ...t, category: t.effectiveCategory || t.category })
+      (t) =>
+        !isTransferTransaction(
+          { ...t, category: t.effectiveCategory || t.category },
+          excludedDescriptions
+        )
     );
     const spending = nonTransfer
       .filter((t) => t.amount > 0)
@@ -842,8 +846,8 @@ function SummaryCards({ transactions, filtersActive }) {
     const income = nonTransfer
       .filter((t) => t.amount < 0)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    return { spending, income, count: thisMonth.length };
-  }, [transactions]);
+    return { spending, income, count: nonTransfer.length };
+  }, [transactions, excludedDescriptions]);
 
   const subtitle = filtersActive ? 'Filtered · This month' : 'This month';
 
@@ -906,6 +910,7 @@ export default function Transactions() {
   const [merchantRules, setMerchantRules] = useState([]);
   const [categoryEditTxn, setCategoryEditTxn] = useState(null);
   const [categoryRules, setCategoryRules] = useState([]);
+  const [excludedDescriptions, setExcludedDescriptions] = useState(null);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -952,18 +957,34 @@ export default function Transactions() {
     }
   }, []);
 
+  const loadSettings = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/settings');
+      try {
+        const parsed = JSON.parse(data.excludedDescriptions || '[]');
+        setExcludedDescriptions(Array.isArray(parsed) ? parsed : null);
+      } catch {
+        setExcludedDescriptions(null);
+      }
+    } catch (e) {
+      /* non-fatal — falls back to static defaults in isTransferTransaction */
+    }
+  }, []);
+
   useEffect(() => {
     loadTransactions();
     loadCategories();
     loadAccounts();
     loadMerchantRules();
     loadCategoryRules();
+    loadSettings();
   }, [
     loadTransactions,
     loadCategories,
     loadAccounts,
     loadMerchantRules,
     loadCategoryRules,
+    loadSettings,
   ]);
 
   const filtersActive = Boolean(search.trim() || category || account);
@@ -1066,6 +1087,7 @@ export default function Transactions() {
       <SummaryCards
         transactions={filtersActive ? filtered : transactions}
         filtersActive={filtersActive}
+        excludedDescriptions={excludedDescriptions ?? undefined}
       />
 
       <div className="mb-4 flex flex-col gap-3 md:flex-row">
