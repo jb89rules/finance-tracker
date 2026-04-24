@@ -1,6 +1,6 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
-const { computeBillStatus } = require('../lib/billStatus');
+const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -70,7 +70,8 @@ router.get('/', async (req, res) => {
     const bills = await prisma.bill.findMany({
       orderBy: { dueDay: 'asc' },
     });
-    const enriched = bills.map((b) => ({ ...b, ...computeBillStatus(b.dueDay) }));
+    const withStatus = bills.map((b) => ({ ...b, ...computeBillStatus(b.dueDay) }));
+    const enriched = await enrichBillsWithPayments(prisma, withStatus);
     res.json(enriched);
   } catch (err) {
     console.error('[bills] list', err.message);
@@ -132,6 +133,18 @@ function validateBillInput(body, { partial }) {
     }
   }
 
+  if (body.paymentWindowDays !== undefined) {
+    if (
+      !Number.isInteger(body.paymentWindowDays) ||
+      body.paymentWindowDays < 1 ||
+      body.paymentWindowDays > 14
+    ) {
+      errors.push('paymentWindowDays must be an integer 1-14');
+    } else {
+      data.paymentWindowDays = body.paymentWindowDays;
+    }
+  }
+
   if (body.isActive !== undefined) {
     if (typeof body.isActive !== 'boolean') {
       errors.push('isActive must be a boolean');
@@ -157,6 +170,7 @@ router.post('/', async (req, res) => {
         dueDay: data.dueDay,
         category: data.category ?? null,
         budgetCategory: data.budgetCategory ?? null,
+        paymentWindowDays: data.paymentWindowDays ?? 3,
         isActive: data.isActive ?? true,
       },
     });

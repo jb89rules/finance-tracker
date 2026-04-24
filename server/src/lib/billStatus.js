@@ -41,4 +41,72 @@ function computeBillStatus(dueDay) {
   return { daysUntilDue, daysOverdue, status };
 }
 
-module.exports = { computeBillStatus };
+function computeMostRecentDue(dueDay) {
+  const today = startOfToday();
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const thisMonthDue = resolveDueDate(y, m, dueDay);
+  if (thisMonthDue <= today) return thisMonthDue;
+  const lm = m === 0 ? 11 : m - 1;
+  const ly = m === 0 ? y - 1 : y;
+  return resolveDueDate(ly, lm, dueDay);
+}
+
+function descriptionMatchesBillName(description, billName) {
+  const desc = (description || '').toLowerCase();
+  const name = (billName || '').toLowerCase().trim();
+  if (!desc || !name) return false;
+  if (desc.includes(name)) return true;
+  const words = desc.split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+  return words.some((w) => name.includes(w));
+}
+
+async function findBillPayment(prisma, bill) {
+  const mostRecentDue = computeMostRecentDue(bill.dueDay);
+  const windowStart = new Date(mostRecentDue);
+  windowStart.setDate(windowStart.getDate() - bill.paymentWindowDays);
+  windowStart.setHours(0, 0, 0, 0);
+  const windowEnd = new Date(mostRecentDue);
+  windowEnd.setDate(windowEnd.getDate() + bill.paymentWindowDays + 1);
+  windowEnd.setHours(0, 0, 0, 0);
+
+  const amountLow = bill.amount * 0.9;
+  const amountHigh = bill.amount * 1.1;
+
+  const candidates = await prisma.transaction.findMany({
+    where: {
+      date: { gte: windowStart, lt: windowEnd },
+      amount: { gte: amountLow, lte: amountHigh },
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  return (
+    candidates.find((t) => descriptionMatchesBillName(t.description, bill.name)) ||
+    null
+  );
+}
+
+async function enrichBillsWithPayments(prisma, bills) {
+  return Promise.all(
+    bills.map(async (bill) => {
+      if (!bill.isActive) return bill;
+      const match = await findBillPayment(prisma, bill);
+      if (!match) return bill;
+      return {
+        ...bill,
+        paidDate: match.date,
+        paidAmount: match.amount,
+        status: 'paid',
+      };
+    })
+  );
+}
+
+module.exports = {
+  computeBillStatus,
+  computeMostRecentDue,
+  descriptionMatchesBillName,
+  findBillPayment,
+  enrichBillsWithPayments,
+};

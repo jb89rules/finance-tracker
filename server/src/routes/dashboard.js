@@ -1,6 +1,6 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
-const { computeBillStatus } = require('../lib/billStatus');
+const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -124,10 +124,11 @@ router.get('/', async (req, res) => {
       where: { isActive: true },
       orderBy: { dueDay: 'asc' },
     });
-    const billsWithStatus = bills.map((b) => ({
+    const withStatus = bills.map((b) => ({
       ...b,
       ...computeBillStatus(b.dueDay),
     }));
+    const billsWithStatus = await enrichBillsWithPayments(prisma, withStatus);
 
     const groupedCategories = await prisma.transaction.groupBy({
       by: ['category'],

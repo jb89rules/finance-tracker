@@ -198,7 +198,11 @@ export default function Dashboard() {
   const billsDueSoon = useMemo(() => {
     if (!data) return [];
     return data.bills
-      .filter((b) => b.status === 'overdue' || b.daysUntilDue <= 14)
+      .filter(
+        (b) =>
+          b.status !== 'paid' &&
+          (b.status === 'overdue' || b.daysUntilDue <= 14)
+      )
       .slice(0, 5);
   }, [data]);
 

@@ -28,7 +28,15 @@ const STATUS_STYLES = {
   upcoming: { dot: 'bg-emerald-500', text: 'text-emerald-400' },
   'due-soon': { dot: 'bg-amber-500', text: 'text-amber-400' },
   overdue: { dot: 'bg-red-500', text: 'text-red-400' },
+  paid: { dot: 'bg-emerald-500', text: 'text-emerald-400' },
 };
+
+function formatShortDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 function PencilIcon() {
   return (
@@ -90,7 +98,8 @@ function Toggle({ value, onChange, title }) {
 
 function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
   const style = STATUS_STYLES[bill.status] || STATUS_STYLES.upcoming;
-  const muted = !bill.isActive;
+  const isPaid = bill.status === 'paid';
+  const opacityClass = !bill.isActive ? 'opacity-50' : isPaid ? 'opacity-75' : '';
 
   const actions = (
     <div className="flex items-center shrink-0" style={{ gap: '20px', minWidth: '140px' }}>
@@ -120,9 +129,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
 
   return (
     <div
-      className={`border-b border-surface-600/60 last:border-0 ${
-        muted ? 'opacity-50' : ''
-      }`}
+      className={`border-b border-surface-600/60 last:border-0 ${opacityClass}`}
     >
       <div className="flex flex-col gap-2 px-4 py-3 md:hidden">
         <div className="flex items-start justify-between gap-3">
@@ -136,8 +143,23 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0 text-xs">
-            <span className="text-slate-500">Due {ordinal(bill.dueDay)}</span>
-            <span className={`ml-2 font-medium ${style.text}`}>{dueText(bill)}</span>
+            {isPaid ? (
+              <>
+                <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                  Paid
+                </span>
+                {bill.paidDate && (
+                  <span className="ml-2 text-slate-500">
+                    Paid {formatShortDate(bill.paidDate)}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="text-slate-500">Due {ordinal(bill.dueDay)}</span>
+                <span className={`ml-2 font-medium ${style.text}`}>{dueText(bill)}</span>
+              </>
+            )}
             {bill.category && (
               <span className="ml-2 rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
                 {formatCategory(bill.category)}
@@ -172,8 +194,23 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
           {currencyFormatter.format(bill.amount)}
         </div>
         <div className="shrink-0 whitespace-nowrap text-right">
-          <div className="text-xs text-slate-500">Due on the {ordinal(bill.dueDay)}</div>
-          <div className={`text-xs font-medium ${style.text}`}>{dueText(bill)}</div>
+          {isPaid ? (
+            <>
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                Paid
+              </span>
+              {bill.paidDate && (
+                <div className="mt-1 text-xs text-slate-500">
+                  Paid {formatShortDate(bill.paidDate)}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="text-xs text-slate-500">Due on the {ordinal(bill.dueDay)}</div>
+              <div className={`text-xs font-medium ${style.text}`}>{dueText(bill)}</div>
+            </>
+          )}
         </div>
         {actions}
       </div>
@@ -193,6 +230,9 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
   const [budgetCategory, setBudgetCategory] = useState(initial?.budgetCategory ?? '');
   const [budgetCategoryTouched, setBudgetCategoryTouched] = useState(
     Boolean(initial?.budgetCategory)
+  );
+  const [paymentWindowDays, setPaymentWindowDays] = useState(
+    initial?.paymentWindowDays !== undefined ? String(initial.paymentWindowDays) : '3'
   );
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [saving, setSaving] = useState(false);
@@ -248,6 +288,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     e.preventDefault();
     const amountNum = Number.parseFloat(amount);
     const dayNum = Number.parseInt(dueDay, 10);
+    const windowNum = Number.parseInt(paymentWindowDays, 10);
 
     if (!name.trim()) return setError('Name is required');
     if (!Number.isFinite(amountNum) || amountNum < 0) {
@@ -255,6 +296,9 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     }
     if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > 31) {
       return setError('Due day must be 1-31');
+    }
+    if (!Number.isInteger(windowNum) || windowNum < 1 || windowNum > 14) {
+      return setError('Payment window must be 1-14 days');
     }
 
     setSaving(true);
@@ -266,6 +310,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
         dueDay: dayNum,
         category: category.trim() || null,
         budgetCategory: budgetCategory.trim() || null,
+        paymentWindowDays: windowNum,
         isActive,
       });
     } catch (err) {
@@ -330,6 +375,24 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                 className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+              Payment detection window
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="14"
+              value={paymentWindowDays}
+              onChange={(e) => setPaymentWindowDays(e.target.value)}
+              placeholder="3"
+              className="w-24 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Days before/after due date to look for a matching payment
+            </p>
           </div>
 
           <div>
@@ -569,9 +632,15 @@ export default function Bills() {
     const active = bills.filter((b) => b.isActive);
     const monthly = active.reduce((s, b) => s + b.amount, 0);
     const dueThisWeek = active.filter(
-      (b) => b.status === 'due-soon' || b.status === 'overdue'
+      (b) => b.status !== 'paid' && (b.status === 'due-soon' || b.status === 'overdue')
     ).length;
-    return { monthly, dueThisWeek, activeCount: active.length };
+    const now = new Date();
+    const paidThisMonth = active.filter((b) => {
+      if (b.status !== 'paid' || !b.paidDate) return false;
+      const d = new Date(b.paidDate);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length;
+    return { monthly, dueThisWeek, paidThisMonth, activeCount: active.length };
   }, [bills]);
 
   const handleCreate = async (payload) => {
@@ -647,6 +716,11 @@ export default function Bills() {
       color: 'text-amber-400',
     },
     {
+      label: 'Paid this month',
+      value: String(summary.paidThisMonth),
+      color: 'text-emerald-400',
+    },
+    {
       label: 'Active bills',
       value: String(summary.activeCount),
       color: 'text-slate-100',
@@ -661,7 +735,7 @@ export default function Bills() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         {summaryCards.map((c) => (
           <div
             key={c.label}
