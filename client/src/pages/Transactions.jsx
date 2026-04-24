@@ -141,7 +141,178 @@ function PendingBadge() {
 }
 
 function displayNameFor(t) {
-  return t.merchantName || t.description;
+  return t.displayName || t.merchantName || t.description;
+}
+
+function PencilBadge() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-accent-400"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function MerchantOverrideModal({ transaction, rules, onClose, onSaved }) {
+  const currentDisplay = displayNameFor(transaction);
+  const rule = rules.find((r) => r.description === transaction.description);
+  const [value, setValue] = useState(currentDisplay);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const save = async (applyToAll) => {
+    const trimmed = value.trim();
+    if (!trimmed) return setError('Merchant name cannot be empty');
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/transactions/${transaction.id}/merchant`, {
+        merchantOverride: trimmed,
+        applyToAll,
+      });
+      onSaved();
+    } catch (e) {
+      setError('Failed to save');
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/transactions/${transaction.id}/merchant`, {
+        merchantOverride: null,
+      });
+      onSaved();
+    } catch (e) {
+      setError('Failed to clear');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 text-sm font-semibold text-slate-100">
+          Override merchant name
+        </div>
+        <div className="mb-4 truncate text-xs text-slate-500">
+          Description: {transaction.description}
+        </div>
+
+        <input
+          autoFocus
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+        />
+
+        {rule && (
+          <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
+            A rule exists for this description:{' '}
+            <span className="text-slate-200">{rule.merchantOverride}</span>
+          </div>
+        )}
+        {error && (
+          <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => save(false)}
+            disabled={saving}
+            className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            This transaction only
+          </button>
+          <button
+            type="button"
+            onClick={() => save(true)}
+            disabled={saving}
+            className="rounded-md bg-accent-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            All with this description
+          </button>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
+          {transaction.merchantOverride ? (
+            <button
+              type="button"
+              onClick={clear}
+              disabled={saving}
+              className="text-xs text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
+            >
+              Clear override
+            </button>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-surface-700"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MerchantCell({ transaction, onClick }) {
+  const display = displayNameFor(transaction);
+  const isDistinct = display !== transaction.description;
+  const hasOverride = Boolean(transaction.merchantOverride);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex min-w-0 max-w-full items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-surface-700"
+      title="Override merchant"
+    >
+      {isDistinct ? (
+        <>
+          <MerchantAvatar logoUrl={transaction.logoUrl} name={display} />
+          <span className="truncate text-sm text-slate-100">{display}</span>
+          {hasOverride && <PencilBadge />}
+        </>
+      ) : (
+        <span className="text-sm text-slate-500">—</span>
+      )}
+    </button>
+  );
 }
 
 function ScissorsIcon() {
@@ -581,6 +752,8 @@ export default function Transactions() {
   const [showTransfers, setShowTransfers] = useState(false);
   const [error, setError] = useState(null);
   const [splitEditorTxn, setSplitEditorTxn] = useState(null);
+  const [merchantEditTxn, setMerchantEditTxn] = useState(null);
+  const [merchantRules, setMerchantRules] = useState([]);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -609,11 +782,21 @@ export default function Transactions() {
     }
   }, []);
 
+  const loadMerchantRules = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/merchant-rules');
+      setMerchantRules(data);
+    } catch (e) {
+      /* non-fatal */
+    }
+  }, []);
+
   useEffect(() => {
     loadTransactions();
     loadCategories();
     loadAccounts();
-  }, [loadTransactions, loadCategories, loadAccounts]);
+    loadMerchantRules();
+  }, [loadTransactions, loadCategories, loadAccounts, loadMerchantRules]);
 
   const filtersActive = Boolean(search.trim() || category || account);
 
@@ -672,6 +855,11 @@ export default function Transactions() {
       prev.map((t) => (t.id === id ? { ...t, splits: [] } : t))
     );
     setSplitEditorTxn(null);
+  };
+
+  const handleMerchantSaved = async () => {
+    setMerchantEditTxn(null);
+    await Promise.all([loadTransactions(), loadMerchantRules()]);
   };
 
   const syncButton = (
@@ -765,15 +953,36 @@ export default function Transactions() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <MerchantAvatar
-                      logoUrl={t.logoUrl}
-                      name={displayNameFor(t)}
-                    />
-                    <div className="min-w-0 flex-1 truncate text-sm text-slate-100">
-                      {displayNameFor(t)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1 truncate text-sm text-slate-100">
+                        {t.description}
+                      </div>
+                      {t.pending && <PendingBadge />}
                     </div>
-                    {t.pending && <PendingBadge />}
+                    {displayNameFor(t) !== t.description && (
+                      <button
+                        type="button"
+                        onClick={() => setMerchantEditTxn(t)}
+                        className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400"
+                      >
+                        <MerchantAvatar
+                          logoUrl={t.logoUrl}
+                          name={displayNameFor(t)}
+                        />
+                        <span className="truncate">{displayNameFor(t)}</span>
+                        {t.merchantOverride && <PencilBadge />}
+                      </button>
+                    )}
+                    {displayNameFor(t) === t.description && (
+                      <button
+                        type="button"
+                        onClick={() => setMerchantEditTxn(t)}
+                        className="mt-0.5 text-[10px] text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                      >
+                        Set merchant name
+                      </button>
+                    )}
                   </div>
                   <div
                     className={`shrink-0 text-sm font-medium tabular-nums ${
@@ -813,6 +1022,7 @@ export default function Transactions() {
             <tr className="border-b border-surface-600/60 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Description</th>
+              <th className="px-4 py-3 font-medium">Merchant</th>
               <th className="px-4 py-3 font-medium">Account</th>
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 text-right font-medium">Amount</th>
@@ -821,7 +1031,7 @@ export default function Transactions() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
                   {transactions.length === 0
                     ? 'No transactions yet. Click Sync to pull from Plaid.'
                     : 'No transactions match your filters.'}
@@ -840,13 +1050,15 @@ export default function Transactions() {
                   </td>
                   <td className="px-4 py-3 text-slate-100">
                     <div className="flex items-center gap-2">
-                      <MerchantAvatar
-                        logoUrl={t.logoUrl}
-                        name={displayNameFor(t)}
-                      />
-                      <span className="truncate">{displayNameFor(t)}</span>
+                      <span className="truncate">{t.description}</span>
                       {t.pending && <PendingBadge />}
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <MerchantCell
+                      transaction={t}
+                      onClick={() => setMerchantEditTxn(t)}
+                    />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-400">
                     {t.account
@@ -891,6 +1103,15 @@ export default function Transactions() {
           onClose={() => setSplitEditorTxn(null)}
           onSaved={handleSplitsSaved}
           onRemoved={handleSplitsRemoved}
+        />
+      )}
+
+      {merchantEditTxn && (
+        <MerchantOverrideModal
+          transaction={merchantEditTxn}
+          rules={merchantRules}
+          onClose={() => setMerchantEditTxn(null)}
+          onSaved={handleMerchantSaved}
         />
       )}
     </PageShell>

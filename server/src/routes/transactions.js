@@ -17,6 +17,19 @@ router.get('/categories', async (req, res) => {
   }
 });
 
+function pickString(v) {
+  return typeof v === 'string' && v.trim() ? v : null;
+}
+
+function computeDisplayName(txn, ruleMap) {
+  return (
+    pickString(txn.merchantOverride) ||
+    pickString(ruleMap.get(txn.description)) ||
+    pickString(txn.merchantName) ||
+    txn.description
+  );
+}
+
 router.get('/', async (req, res) => {
   const { category, account, search } = req.query;
 
@@ -26,22 +39,71 @@ router.get('/', async (req, res) => {
   if (search) where.description = { contains: String(search), mode: 'insensitive' };
 
   try {
-    const transactions = await prisma.transaction.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      include: {
-        account: {
-          select: { id: true, institution: true, name: true },
+    const [transactions, rules] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        include: {
+          account: { select: { id: true, institution: true, name: true } },
+          splits: { orderBy: { createdAt: 'asc' } },
         },
-        splits: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
-    res.json(transactions);
+      }),
+      prisma.merchantRule.findMany({
+        select: { description: true, merchantOverride: true },
+      }),
+    ]);
+
+    const ruleMap = new Map(rules.map((r) => [r.description, r.merchantOverride]));
+    const enriched = transactions.map((t) => ({
+      ...t,
+      displayName: computeDisplayName(t, ruleMap),
+    }));
+    res.json(enriched);
   } catch (err) {
     console.error('[transactions] list', err.message);
     res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+router.patch('/:id/merchant', async (req, res) => {
+  const { id } = req.params;
+  const { merchantOverride, applyToAll } = req.body || {};
+
+  const raw =
+    merchantOverride === null || merchantOverride === undefined
+      ? null
+      : typeof merchantOverride === 'string'
+      ? merchantOverride.trim() || null
+      : null;
+
+  try {
+    const txn = await prisma.transaction.findUnique({ where: { id } });
+    if (!txn) return res.status(404).json({ error: 'Transaction not found' });
+
+    if (applyToAll && raw) {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.merchantRule.upsert({
+          where: { description: txn.description },
+          update: { merchantOverride: raw },
+          create: { description: txn.description, merchantOverride: raw },
+        });
+        const updated = await tx.transaction.updateMany({
+          where: { description: txn.description },
+          data: { merchantOverride: raw },
+        });
+        return updated.count;
+      });
+      return res.json({ updated: result });
+    }
+
+    await prisma.transaction.update({
+      where: { id },
+      data: { merchantOverride: raw },
+    });
+    res.json({ updated: 1 });
+  } catch (err) {
+    console.error('[transactions] merchant patch', err.message);
+    res.status(500).json({ error: 'Failed to update merchant' });
   }
 });
 

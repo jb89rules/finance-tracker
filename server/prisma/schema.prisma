@@ -23,19 +23,28 @@ model Account {
 }
 
 model Transaction {
-  id           String             @id @default(uuid())
-  accountId    String
-  account      Account            @relation(fields: [accountId], references: [id])
-  date         DateTime
-  description  String
-  merchantName String?
-  logoUrl      String?
-  amount       Float
-  category     String?
-  pending      Boolean            @default(false)
-  source       String // "plaid" | "finicity" | "manual"
-  createdAt    DateTime           @default(now())
-  splits       TransactionSplit[]
+  id               String             @id @default(uuid())
+  accountId        String
+  account          Account            @relation(fields: [accountId], references: [id])
+  date             DateTime
+  description      String
+  merchantName     String?
+  merchantOverride String?
+  logoUrl          String?
+  amount           Float
+  category         String?
+  pending          Boolean            @default(false)
+  source           String // "plaid" | "finicity" | "manual"
+  createdAt        DateTime           @default(now())
+  splits           TransactionSplit[]
+}
+
+model MerchantRule {
+  id               String   @id @default(uuid())
+  description      String   @unique
+  merchantOverride String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model Category {

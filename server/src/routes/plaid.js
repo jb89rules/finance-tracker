@@ -141,6 +141,13 @@ router.post('/sync', async (req, res) => {
       }
     }
 
+    const merchantRules = await prisma.merchantRule.findMany({
+      select: { description: true, merchantOverride: true },
+    });
+    const ruleMap = new Map(
+      merchantRules.map((r) => [r.description, r.merchantOverride])
+    );
+
     let added = 0;
 
     for (const [, accessToken] of itemAccessTokens) {
@@ -162,7 +169,7 @@ router.post('/sync', async (req, res) => {
 
           const existing = await prisma.transaction.findUnique({
             where: { id: t.transaction_id },
-            select: { id: true },
+            select: { id: true, merchantOverride: true },
           });
 
           const rawCategory =
@@ -170,6 +177,8 @@ router.post('/sync', async (req, res) => {
             (Array.isArray(t.category) && t.category[0]) ||
             null;
           const category = rawCategory ? formatCategory(rawCategory) : null;
+
+          const ruleOverride = ruleMap.get(t.name) || null;
 
           const data = {
             accountId: t.account_id,
@@ -183,10 +192,18 @@ router.post('/sync', async (req, res) => {
             source: 'plaid',
           };
 
+          const createData = { ...data };
+          if (ruleOverride) createData.merchantOverride = ruleOverride;
+
+          const updateData = { ...data };
+          if (ruleOverride && !existing?.merchantOverride) {
+            updateData.merchantOverride = ruleOverride;
+          }
+
           await prisma.transaction.upsert({
             where: { id: t.transaction_id },
-            update: data,
-            create: { id: t.transaction_id, ...data },
+            update: updateData,
+            create: { id: t.transaction_id, ...createData },
           });
 
           if (!existing) added++;
