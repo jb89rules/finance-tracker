@@ -5,48 +5,88 @@ const { formatCategory } = require('../lib/formatCategory');
 
 const prisma = new PrismaClient();
 
-async function main() {
-  const distinct = await prisma.transaction.findMany({
-    distinct: ['category'],
-    select: { category: true },
-  });
+async function normalizeModelField({ label, list, countFor, updateFor }) {
+  const distinctValues = [...new Set(list.filter((c) => c !== null))];
+  console.log(
+    `\n[${label}] ${distinctValues.length} distinct non-null value${distinctValues.length === 1 ? '' : 's'}`
+  );
+  if (distinctValues.length === 0) return 0;
 
-  const categories = distinct
-    .map((d) => d.category)
-    .filter((c) => c !== null);
-
-  console.log(`Found ${categories.length} distinct non-null categor${categories.length === 1 ? 'y' : 'ies'}.`);
-  if (categories.length === 0) {
-    console.log('Nothing to migrate.');
-    await prisma.$disconnect();
-    return;
-  }
-
-  let totalUpdated = 0;
-  for (const raw of categories) {
+  let updated = 0;
+  for (const raw of distinctValues) {
     const formatted = formatCategory(raw);
     if (formatted === raw) {
-      const count = await prisma.transaction.count({ where: { category: raw } });
+      const count = await countFor(raw);
       console.log(`  ${raw} -> (unchanged, ${count} row${count === 1 ? '' : 's'})`);
       continue;
     }
-    const res = await prisma.transaction.updateMany({
-      where: { category: raw },
-      data: { category: formatted },
-    });
+    const res = await updateFor(raw, formatted);
     console.log(`  ${raw} -> ${formatted} (${res.count} row${res.count === 1 ? '' : 's'})`);
-    totalUpdated += res.count;
+    updated += res.count;
   }
+  console.log(`[${label}] total updated: ${updated}`);
+  return updated;
+}
 
-  console.log(`\nTotal transactions updated: ${totalUpdated}`);
+async function main() {
+  const txnDistinct = await prisma.transaction.findMany({
+    distinct: ['category'],
+    select: { category: true },
+  });
+  await normalizeModelField({
+    label: 'transaction.category',
+    list: txnDistinct.map((d) => d.category),
+    countFor: (raw) => prisma.transaction.count({ where: { category: raw } }),
+    updateFor: (raw, formatted) =>
+      prisma.transaction.updateMany({ where: { category: raw }, data: { category: formatted } }),
+  });
 
-  const final = await prisma.transaction.findMany({
+  const billCatDistinct = await prisma.bill.findMany({
+    distinct: ['category'],
+    select: { category: true },
+  });
+  await normalizeModelField({
+    label: 'bill.category',
+    list: billCatDistinct.map((d) => d.category),
+    countFor: (raw) => prisma.bill.count({ where: { category: raw } }),
+    updateFor: (raw, formatted) =>
+      prisma.bill.updateMany({ where: { category: raw }, data: { category: formatted } }),
+  });
+
+  const billBudgetDistinct = await prisma.bill.findMany({
+    distinct: ['budgetCategory'],
+    select: { budgetCategory: true },
+  });
+  await normalizeModelField({
+    label: 'bill.budgetCategory',
+    list: billBudgetDistinct.map((d) => d.budgetCategory),
+    countFor: (raw) => prisma.bill.count({ where: { budgetCategory: raw } }),
+    updateFor: (raw, formatted) =>
+      prisma.bill.updateMany({
+        where: { budgetCategory: raw },
+        data: { budgetCategory: formatted },
+      }),
+  });
+
+  const budgetDistinct = await prisma.budget.findMany({
+    distinct: ['category'],
+    select: { category: true },
+  });
+  await normalizeModelField({
+    label: 'budget.category',
+    list: budgetDistinct.map((d) => d.category),
+    countFor: (raw) => prisma.budget.count({ where: { category: raw } }),
+    updateFor: (raw, formatted) =>
+      prisma.budget.updateMany({ where: { category: raw }, data: { category: formatted } }),
+  });
+
+  const finalTxn = await prisma.transaction.findMany({
     distinct: ['category'],
     select: { category: true },
     orderBy: { category: 'asc' },
   });
-  console.log('\nDistinct categories after migration:');
-  for (const d of final) {
+  console.log('\nDistinct transaction categories after migration:');
+  for (const d of finalTxn) {
     console.log(`  - ${d.category ?? '(null)'}`);
   }
 

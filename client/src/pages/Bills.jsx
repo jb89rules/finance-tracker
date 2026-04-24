@@ -155,27 +155,23 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
 
       <div className="hidden items-center gap-4 px-4 py-3 md:flex">
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <div className="truncate font-medium text-slate-100">{bill.name}</div>
-            {bill.category && (
-              <span className="rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
-                {formatCategory(bill.category)}
-              </span>
-            )}
-            {bill.budgetCategory && (
-              <span className="text-xs text-slate-500">
-                → {formatCategory(bill.budgetCategory)}
-              </span>
-            )}
-          </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="min-w-0 truncate font-medium text-slate-100">{bill.name}</div>
+          {bill.category && (
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
+              {formatCategory(bill.category)}
+            </span>
+          )}
+          {bill.budgetCategory && (
+            <span className="shrink-0 whitespace-nowrap text-xs text-slate-500">
+              → {formatCategory(bill.budgetCategory)}
+            </span>
+          )}
         </div>
-        <div className="shrink-0 text-right">
-          <div className="font-medium tabular-nums text-slate-100">
-            {currencyFormatter.format(bill.amount)}
-          </div>
+        <div className="shrink-0 whitespace-nowrap text-right font-medium tabular-nums text-slate-100">
+          {currencyFormatter.format(bill.amount)}
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 whitespace-nowrap text-right">
           <div className="text-xs text-slate-500">Due on the {ordinal(bill.dueDay)}</div>
           <div className={`text-xs font-medium ${style.text}`}>{dueText(bill)}</div>
         </div>
