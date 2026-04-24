@@ -93,7 +93,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
   const muted = !bill.isActive;
 
   const actions = (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex min-w-[120px] shrink-0 items-center justify-end gap-3">
       <Toggle
         value={bill.isActive}
         onChange={(next) => onToggleActive(next)}
@@ -103,7 +103,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
         type="button"
         onClick={onEdit}
         title="Edit bill"
-        className="rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-slate-200"
+        className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-slate-200"
       >
         <PencilIcon />
       </button>
@@ -111,7 +111,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
         type="button"
         onClick={onDelete}
         title="Delete bill"
-        className="rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-red-400"
+        className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-red-400"
       >
         <TrashIcon />
       </button>
