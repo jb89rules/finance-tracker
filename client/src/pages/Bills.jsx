@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
@@ -72,6 +72,104 @@ function TrashIcon() {
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
+  );
+}
+
+function CategoryCombobox({ value, options, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const allOptions =
+    value && !options.includes(value) ? [value, ...options] : options;
+  const filtered = query
+    ? allOptions.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
+    : allOptions;
+
+  const select = (next) => {
+    onChange(next);
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-left text-sm outline-none focus:ring-2 focus:ring-accent-500"
+      >
+        <span className={value ? 'text-slate-100' : 'text-slate-500'}>
+          {value ? formatCategory(value) : placeholder || 'Select'}
+        </span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-slate-500"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-surface-600/60 bg-surface-700 shadow-lg">
+          <div className="border-b border-surface-600/60 p-2">
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="w-full rounded bg-surface-800 px-2 py-1 text-xs text-slate-100 outline-none ring-1 ring-surface-600 focus:ring-accent-500"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto py-1">
+            {value && (
+              <button
+                type="button"
+                onClick={() => select('')}
+                className="block w-full border-b border-surface-600/60 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-surface-600"
+              >
+                Clear selection
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-500">No matches</div>
+            ) : (
+              filtered.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => select(opt)}
+                  className={`block w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-600 ${
+                    opt === value ? 'text-accent-400' : 'text-slate-200'
+                  }`}
+                >
+                  {formatCategory(opt)}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -313,13 +411,8 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
                 </button>
               </>
             )}
-            {bill.category && (
-              <span className="ml-2 rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
-                {formatCategory(bill.category)}
-              </span>
-            )}
             {bill.budgetCategory && (
-              <span className="ml-1 text-xs text-slate-500">
+              <span className="ml-2 text-xs text-slate-500">
                 → {formatCategory(bill.budgetCategory)}
               </span>
             )}
@@ -332,11 +425,6 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`} />
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="min-w-0 truncate font-medium text-slate-100">{bill.name}</div>
-          {bill.category && (
-            <span className="shrink-0 whitespace-nowrap rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
-              {formatCategory(bill.category)}
-            </span>
-          )}
           {bill.budgetCategory && (
             <span className="shrink-0 whitespace-nowrap text-xs text-slate-500">
               → {formatCategory(bill.budgetCategory)}
@@ -396,7 +484,6 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     initial?.dueDay !== undefined ? String(initial.dueDay) : ''
   );
   const [matchKeyword, setMatchKeyword] = useState(initial?.matchKeyword ?? '');
-  const [category, setCategory] = useState(initial?.category ?? '');
   const [budgetCategory, setBudgetCategory] = useState(initial?.budgetCategory ?? '');
   const [budgetCategoryTouched, setBudgetCategoryTouched] = useState(
     Boolean(initial?.budgetCategory)
@@ -408,7 +495,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  const suggestBudgetCategory = (billName, fallback) => {
+  const suggestBudgetCategory = (billName) => {
     const lower = billName.toLowerCase();
     const has = (term) => lower.includes(term);
     if (
@@ -422,27 +509,19 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     if (has('insurance')) return 'Insurance';
     if (has('loan') || has('payment') || has('mortgage')) return 'Loan Payments';
     if (has('gym') || has('fitness')) return 'Personal Care';
-    return fallback || '';
+    return '';
   };
 
   const handleNameChange = (e) => {
     const next = e.target.value;
     setName(next);
     if (!budgetCategoryTouched) {
-      setBudgetCategory(suggestBudgetCategory(next, category));
+      setBudgetCategory(suggestBudgetCategory(next));
     }
   };
 
-  const handleCategoryChange = (e) => {
-    const next = e.target.value;
-    setCategory(next);
-    if (!budgetCategoryTouched) {
-      setBudgetCategory(suggestBudgetCategory(name, next));
-    }
-  };
-
-  const handleBudgetCategoryChange = (e) => {
-    setBudgetCategory(e.target.value);
+  const handleBudgetCategoryChange = (next) => {
+    setBudgetCategory(next);
     setBudgetCategoryTouched(true);
   };
 
@@ -479,7 +558,6 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
         matchKeyword: matchKeyword.trim() || null,
         amount: amountNum,
         dueDay: dayNum,
-        category: category.trim() || null,
         budgetCategory: budgetCategory.trim() || null,
         paymentWindowDays: windowNum,
         isActive,
@@ -583,38 +661,14 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
 
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-              Category
-            </label>
-            <input
-              list="bill-categories"
-              value={category}
-              onChange={handleCategoryChange}
-              placeholder="Type or select a category"
-              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
-            />
-            <datalist id="bill-categories">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
               Budget Category
             </label>
-            <input
-              list="bill-budget-categories"
+            <CategoryCombobox
               value={budgetCategory}
+              options={categories}
               onChange={handleBudgetCategoryChange}
-              placeholder="Select or type a budget category"
-              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+              placeholder="Select a budget category"
             />
-            <datalist id="bill-budget-categories">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
             <p className="mt-1 text-xs text-slate-500">
               Transactions in this category will count toward this budget
             </p>
@@ -767,7 +821,7 @@ function DetectBillsModal({ onClose, onAddSelected }) {
                   <div className="mt-1 pl-7 text-xs text-slate-500">
                     <span className="text-slate-400">{s.matchKeyword || s.name}</span>
                     {' · '}
-                    {s.category ? formatCategory(s.category) : 'Uncategorized'}
+                    {s.txnCategory ? formatCategory(s.txnCategory) : 'Uncategorized'}
                     {' · Due on the '}
                     {ordinal(s.dueDay)}
                   </div>
@@ -887,7 +941,6 @@ export default function Bills() {
         matchKeyword: p.matchKeyword || p.name,
         amount: p.amount,
         dueDay: p.dueDay,
-        category: p.category || null,
         isActive: true,
       });
     }

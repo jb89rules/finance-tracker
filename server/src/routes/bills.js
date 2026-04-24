@@ -54,7 +54,7 @@ router.get('/detect', async (req, res) => {
         matchKeyword: similar[0].description,
         amount: Math.round(avg * 100) / 100,
         dueDay: mostCommonDay,
-        category: similar[0].category || null,
+        txnCategory: similar[0].category || null,
       });
     }
 
@@ -112,16 +112,6 @@ function validateBillInput(body, { partial }) {
     }
   } else if (!partial) {
     errors.push('dueDay is required');
-  }
-
-  if (body.category !== undefined) {
-    if (body.category === null || body.category === '') {
-      data.category = null;
-    } else if (typeof body.category !== 'string') {
-      errors.push('category must be a string or null');
-    } else {
-      data.category = body.category.trim() || null;
-    }
   }
 
   if (body.budgetCategory !== undefined) {
@@ -191,7 +181,6 @@ router.post('/', async (req, res) => {
         linkedTransactionId: data.linkedTransactionId ?? null,
         amount: data.amount,
         dueDay: data.dueDay,
-        category: data.category ?? null,
         budgetCategory: data.budgetCategory ?? null,
         paymentWindowDays: data.paymentWindowDays ?? 3,
         isActive: data.isActive ?? true,
