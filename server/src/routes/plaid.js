@@ -141,11 +141,19 @@ router.post('/sync', async (req, res) => {
       }
     }
 
-    const merchantRules = await prisma.merchantRule.findMany({
-      select: { description: true, merchantOverride: true },
-    });
-    const ruleMap = new Map(
+    const [merchantRules, categoryRules] = await Promise.all([
+      prisma.merchantRule.findMany({
+        select: { description: true, merchantOverride: true },
+      }),
+      prisma.categoryRule.findMany({
+        select: { description: true, categoryOverride: true },
+      }),
+    ]);
+    const merchantRuleMap = new Map(
       merchantRules.map((r) => [r.description, r.merchantOverride])
+    );
+    const categoryRuleMap = new Map(
+      categoryRules.map((r) => [r.description, r.categoryOverride])
     );
 
     let added = 0;
@@ -169,7 +177,12 @@ router.post('/sync', async (req, res) => {
 
           const existing = await prisma.transaction.findUnique({
             where: { id: t.transaction_id },
-            select: { id: true, merchantOverride: true },
+            select: {
+              id: true,
+              merchantOverride: true,
+              categoryOverride: true,
+              _count: { select: { splits: true } },
+            },
           });
 
           const rawCategory =
@@ -178,7 +191,8 @@ router.post('/sync', async (req, res) => {
             null;
           const category = rawCategory ? formatCategory(rawCategory) : null;
 
-          const ruleOverride = ruleMap.get(t.name) || null;
+          const merchantOverride = merchantRuleMap.get(t.name) || null;
+          const categoryOverride = categoryRuleMap.get(t.name) || null;
 
           const data = {
             accountId: t.account_id,
@@ -193,11 +207,20 @@ router.post('/sync', async (req, res) => {
           };
 
           const createData = { ...data };
-          if (ruleOverride) createData.merchantOverride = ruleOverride;
+          if (merchantOverride) createData.merchantOverride = merchantOverride;
+          if (categoryOverride) createData.categoryOverride = categoryOverride;
 
           const updateData = { ...data };
-          if (ruleOverride && !existing?.merchantOverride) {
-            updateData.merchantOverride = ruleOverride;
+          if (merchantOverride && !existing?.merchantOverride) {
+            updateData.merchantOverride = merchantOverride;
+          }
+          const existingHasSplits = (existing?._count?.splits || 0) > 0;
+          if (
+            categoryOverride &&
+            !existing?.categoryOverride &&
+            !existingHasSplits
+          ) {
+            updateData.categoryOverride = categoryOverride;
           }
 
           await prisma.transaction.upsert({

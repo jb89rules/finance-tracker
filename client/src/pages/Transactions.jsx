@@ -290,6 +290,154 @@ function MerchantOverrideModal({ transaction, rules, onClose, onSaved }) {
   );
 }
 
+function CategoryBadge({ transaction, onClick }) {
+  const hasOverride = Boolean(transaction.categoryOverride);
+  const effective = transaction.effectiveCategory;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-full bg-surface-600 px-2.5 py-1 text-xs font-medium text-slate-200 transition-colors hover:bg-surface-500"
+    >
+      <span>{effective ? formatCategory(effective) : 'Uncategorized'}</span>
+      {hasOverride && <PencilBadge />}
+    </button>
+  );
+}
+
+function CategoryOverrideModal({ transaction, categories, rules, onClose, onSaved }) {
+  const rule = rules.find((r) => r.description === transaction.description);
+  const [value, setValue] = useState(transaction.effectiveCategory || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const save = async (applyToAll) => {
+    if (!value) return setError('Pick a category');
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/transactions/${transaction.id}/category`, {
+        categoryOverride: value,
+        applyToAll,
+      });
+      onSaved();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to save');
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/transactions/${transaction.id}/category`, {
+        categoryOverride: null,
+      });
+      onSaved();
+    } catch (e) {
+      setError('Failed to clear');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 text-sm font-semibold text-slate-100">
+          Override category
+        </div>
+        <div className="mb-4 truncate text-xs text-slate-500">
+          Description: {transaction.description}
+        </div>
+
+        <select
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <option value="">Select a category</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {formatCategory(c)}
+            </option>
+          ))}
+        </select>
+
+        {rule && (
+          <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
+            A rule exists for this description:{' '}
+            <span className="text-slate-200">
+              {formatCategory(rule.categoryOverride)}
+            </span>
+          </div>
+        )}
+        {error && (
+          <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => save(false)}
+            disabled={saving}
+            className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            This transaction only
+          </button>
+          <button
+            type="button"
+            onClick={() => save(true)}
+            disabled={saving}
+            className="rounded-md bg-accent-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            All with this description
+          </button>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
+          {transaction.categoryOverride ? (
+            <button
+              type="button"
+              onClick={clear}
+              disabled={saving}
+              className="text-xs text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
+            >
+              Clear override
+            </button>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-surface-700"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MerchantCell({ transaction, onClick }) {
   const display = displayNameFor(transaction);
   const isDistinct = display !== transaction.description;
@@ -685,7 +833,9 @@ function SummaryCards({ transactions, filtersActive }) {
       const d = new Date(t.date);
       return d.getFullYear() === year && d.getMonth() === month;
     });
-    const nonTransfer = thisMonth.filter((t) => !isTransferTransaction(t));
+    const nonTransfer = thisMonth.filter(
+      (t) => !isTransferTransaction({ ...t, category: t.effectiveCategory || t.category })
+    );
     const spending = nonTransfer
       .filter((t) => t.amount > 0)
       .reduce((sum, t) => sum + t.amount, 0);
@@ -754,6 +904,8 @@ export default function Transactions() {
   const [splitEditorTxn, setSplitEditorTxn] = useState(null);
   const [merchantEditTxn, setMerchantEditTxn] = useState(null);
   const [merchantRules, setMerchantRules] = useState([]);
+  const [categoryEditTxn, setCategoryEditTxn] = useState(null);
+  const [categoryRules, setCategoryRules] = useState([]);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -791,20 +943,41 @@ export default function Transactions() {
     }
   }, []);
 
+  const loadCategoryRules = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/category-rules');
+      setCategoryRules(data);
+    } catch (e) {
+      /* non-fatal */
+    }
+  }, []);
+
   useEffect(() => {
     loadTransactions();
     loadCategories();
     loadAccounts();
     loadMerchantRules();
-  }, [loadTransactions, loadCategories, loadAccounts, loadMerchantRules]);
+    loadCategoryRules();
+  }, [
+    loadTransactions,
+    loadCategories,
+    loadAccounts,
+    loadMerchantRules,
+    loadCategoryRules,
+  ]);
 
   const filtersActive = Boolean(search.trim() || category || account);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return transactions.filter((t) => {
-      if (!showTransfers && EXCLUDED_CATEGORIES.includes(t.category)) return false;
-      if (category && t.category !== category) return false;
+      if (
+        !showTransfers &&
+        EXCLUDED_CATEGORIES.includes(t.effectiveCategory || t.category)
+      ) {
+        return false;
+      }
+      if (category && t.effectiveCategory !== category) return false;
       if (account && t.accountId !== account) return false;
       if (q) {
         const hay = `${t.description} ${t.merchantName || ''}`.toLowerCase();
@@ -860,6 +1033,11 @@ export default function Transactions() {
   const handleMerchantSaved = async () => {
     setMerchantEditTxn(null);
     await Promise.all([loadTransactions(), loadMerchantRules()]);
+  };
+
+  const handleCategorySaved = async () => {
+    setCategoryEditTxn(null);
+    await Promise.all([loadTransactions(), loadCategoryRules()]);
   };
 
   const syncButton = (
@@ -998,10 +1176,9 @@ export default function Transactions() {
                     {t.splits && t.splits.length > 0 ? (
                       <SplitBadge splits={t.splits} />
                     ) : (
-                      <CategoryPicker
-                        value={t.category}
-                        categories={categories}
-                        onChange={(next) => handleCategoryChange(t.id, next)}
+                      <CategoryBadge
+                        transaction={t}
+                        onClick={() => setCategoryEditTxn(t)}
                       />
                     )}
                     <ScissorsButton
@@ -1070,10 +1247,9 @@ export default function Transactions() {
                       {t.splits && t.splits.length > 0 ? (
                         <SplitBadge splits={t.splits} />
                       ) : (
-                        <CategoryPicker
-                          value={t.category}
-                          categories={categories}
-                          onChange={(next) => handleCategoryChange(t.id, next)}
+                        <CategoryBadge
+                          transaction={t}
+                          onClick={() => setCategoryEditTxn(t)}
                         />
                       )}
                       <ScissorsButton
@@ -1112,6 +1288,16 @@ export default function Transactions() {
           rules={merchantRules}
           onClose={() => setMerchantEditTxn(null)}
           onSaved={handleMerchantSaved}
+        />
+      )}
+
+      {categoryEditTxn && (
+        <CategoryOverrideModal
+          transaction={categoryEditTxn}
+          categories={categories}
+          rules={categoryRules}
+          onClose={() => setCategoryEditTxn(null)}
+          onSaved={handleCategorySaved}
         />
       )}
     </PageShell>

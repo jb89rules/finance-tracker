@@ -1032,6 +1032,121 @@ function MerchantRulesSection({ onError }) {
   );
 }
 
+function CategoryRulesSection({ categories, onError }) {
+  const [rules, setRules] = useState([]);
+  const [newDescription, setNewDescription] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/category-rules');
+      setRules(data);
+    } catch (e) {
+      onError('Failed to load category rules');
+    }
+  }, [onError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleAdd = async () => {
+    if (!newDescription.trim() || !newCategory) return;
+    setSaving(true);
+    try {
+      await api.post('/api/category-rules', {
+        description: newDescription.trim(),
+        categoryOverride: newCategory,
+      });
+      setNewDescription('');
+      setNewCategory('');
+      await load();
+    } catch (e) {
+      onError(e.response?.data?.error || 'Failed to save category rule');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await api.delete(`/api/category-rules/${id}`);
+      await load();
+    } catch (e) {
+      onError('Failed to delete category rule');
+    }
+  };
+
+  const categoryNames = categories.map((c) => c.name);
+
+  return (
+    <Section
+      title="Category rules"
+      description="Auto-assign a category whenever a transaction description matches"
+    >
+      <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+        <input
+          value={newDescription}
+          onChange={(e) => setNewDescription(e.target.value)}
+          placeholder="Bank description"
+          className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+        />
+        <select
+          value={newCategory}
+          onChange={(e) => setNewCategory(e.target.value)}
+          className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <option value="">Select a category</option>
+          {categoryNames.map((c) => (
+            <option key={c} value={c}>
+              {formatCategory(c)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={saving || !newDescription.trim() || !newCategory}
+          className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add rule
+        </button>
+      </div>
+      {rules.length === 0 ? (
+        <div className="rounded-md border border-dashed border-surface-600/60 py-4 text-center text-xs text-slate-500">
+          No category rules yet.
+        </div>
+      ) : (
+        <ul className="divide-y divide-surface-600/60">
+          {rules.map((r) => (
+            <li
+              key={r.id}
+              className="flex items-center justify-between gap-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm text-slate-200">
+                  {r.description}
+                </div>
+                <div className="truncate text-xs text-slate-500">
+                  → {formatCategory(r.categoryOverride)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDelete(r.id)}
+                className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-red-400"
+              >
+                <TrashIcon />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState({});
   const [categories, setCategories] = useState([]);
@@ -1080,6 +1195,7 @@ export default function Settings() {
           onError={setError}
         />
         <MerchantRulesSection onError={setError} />
+        <CategoryRulesSection categories={categories} onError={setError} />
         <TransferExclusionRulesSection settings={settings} onSave={handleSaveSetting} />
         <DefaultBillSettingsSection settings={settings} onSave={handleSaveSetting} />
         <AccountsSection onError={setError} />

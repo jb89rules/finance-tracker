@@ -27,6 +27,7 @@ const dashboardRouter = require('./routes/dashboard');
 const settingsRouter = require('./routes/settings');
 const categoriesRouter = require('./routes/categories');
 const merchantRulesRouter = require('./routes/merchantRules');
+const categoryRulesRouter = require('./routes/categoryRules');
 const { authMiddleware } = require('./middleware/auth');
 
 app.get('/health', (req, res) => {
@@ -43,6 +44,7 @@ app.use('/api/dashboard', authMiddleware, dashboardRouter);
 app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/merchant-rules', authMiddleware, merchantRulesRouter);
+app.use('/api/category-rules', authMiddleware, categoryRulesRouter);
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);

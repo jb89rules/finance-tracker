@@ -2,8 +2,9 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const {
   EXCLUDED_CATEGORIES,
-  getNonTransferDescriptionFilter,
+  getExcludedDescriptions,
 } = require('../lib/excludedCategories');
+const { loadCategoryRuleMap, effectiveCategoryOf } = require('../lib/effectiveCategory');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -15,11 +16,41 @@ function parseMonthYear(req) {
   return { month, year };
 }
 
+function descriptionMatchesPatterns(description, patterns) {
+  if (!patterns || patterns.length === 0) return false;
+  const lower = (description || '').toLowerCase();
+  return patterns.some((p) => lower.includes(p.toLowerCase()));
+}
+
+function descriptionContains(description, needle) {
+  if (!description || !needle) return false;
+  return description.toLowerCase().includes(needle.toLowerCase());
+}
+
+function computeSpent(budget, txns, billNames, excludedPatterns) {
+  if (EXCLUDED_CATEGORIES.includes(budget.category)) return 0;
+  let total = 0;
+  for (const t of txns) {
+    if (descriptionMatchesPatterns(t.description, excludedPatterns)) continue;
+    if (t.splits.length > 0) {
+      for (const s of t.splits) {
+        if (s.category === budget.category) total += s.amount;
+      }
+      continue;
+    }
+    if (t.amount <= 0) continue;
+    if (t.effectiveCategory && EXCLUDED_CATEGORIES.includes(t.effectiveCategory)) continue;
+    const categoryMatches = t.effectiveCategory === budget.category;
+    const descMatches = billNames.some((n) => descriptionContains(t.description, n));
+    if (categoryMatches || descMatches) total += t.amount;
+  }
+  return total;
+}
+
 router.get('/', async (req, res) => {
   const { month, year } = parseMonthYear(req);
 
   try {
-    const NON_TRANSFER_DESCRIPTION = await getNonTransferDescriptionFilter(prisma);
     const budgets = await prisma.budget.findMany({
       where: { month, year },
       orderBy: { category: 'asc' },
@@ -32,14 +63,28 @@ router.get('/', async (req, res) => {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 1);
 
-    const budgetCategories = budgets.map((b) => b.category);
-    const linkedBills = await prisma.bill.findMany({
-      where: {
-        isActive: true,
-        budgetCategory: { in: budgetCategories },
-      },
-      select: { name: true, budgetCategory: true },
-    });
+    const [txns, ruleMap, excludedPatterns, linkedBills] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { date: { gte: startDate, lt: endDate } },
+        include: {
+          splits: { select: { id: true, amount: true, category: true } },
+        },
+      }),
+      loadCategoryRuleMap(prisma),
+      getExcludedDescriptions(prisma),
+      prisma.bill.findMany({
+        where: {
+          isActive: true,
+          budgetCategory: { in: budgets.map((b) => b.category) },
+        },
+        select: { name: true, budgetCategory: true },
+      }),
+    ]);
+
+    const enriched = txns.map((t) => ({
+      ...t,
+      effectiveCategory: effectiveCategoryOf(t, ruleMap),
+    }));
 
     const billNamesByBudgetCategory = new Map();
     for (const bill of linkedBills) {
@@ -49,56 +94,15 @@ router.get('/', async (req, res) => {
       billNamesByBudgetCategory.get(bill.budgetCategory).push(bill.name);
     }
 
-    const withSpent = await Promise.all(
-      budgets.map(async (b) => {
-        if (EXCLUDED_CATEGORIES.includes(b.category)) {
-          return { ...b, spent: 0 };
-        }
-
-        const billNames = billNamesByBudgetCategory.get(b.category) || [];
-        const orClauses = [{ category: b.category }];
-        for (const name of billNames) {
-          orClauses.push({
-            description: { contains: name, mode: 'insensitive' },
-          });
-        }
-
-        const unsplit = await prisma.transaction.aggregate({
-          where: {
-            date: { gte: startDate, lt: endDate },
-            amount: { gt: 0 },
-            splits: { none: {} },
-            ...NON_TRANSFER_DESCRIPTION,
-            AND: [
-              { OR: orClauses },
-              {
-                OR: [
-                  { category: null },
-                  { category: { notIn: EXCLUDED_CATEGORIES } },
-                ],
-              },
-            ],
-          },
-          _sum: { amount: true },
-        });
-
-        const fromSplits = await prisma.transactionSplit.aggregate({
-          where: {
-            category: b.category,
-            transaction: {
-              date: { gte: startDate, lt: endDate },
-              amount: { gt: 0 },
-              ...NON_TRANSFER_DESCRIPTION,
-            },
-          },
-          _sum: { amount: true },
-        });
-
-        const spent =
-          (unsplit._sum.amount || 0) + (fromSplits._sum.amount || 0);
-        return { ...b, spent };
-      })
-    );
+    const withSpent = budgets.map((b) => ({
+      ...b,
+      spent: computeSpent(
+        b,
+        enriched,
+        billNamesByBudgetCategory.get(b.category) || [],
+        excludedPatterns
+      ),
+    }));
 
     res.json(withSpent);
   } catch (err) {

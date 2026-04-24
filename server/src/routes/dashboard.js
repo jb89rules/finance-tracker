@@ -3,9 +3,9 @@ const { PrismaClient } = require('@prisma/client');
 const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
 const {
   EXCLUDED_CATEGORIES,
-  NON_TRANSFER_CATEGORY,
-  getNonTransferDescriptionFilter,
+  getExcludedDescriptions,
 } = require('../lib/excludedCategories');
+const { loadCategoryRuleMap, effectiveCategoryOf } = require('../lib/effectiveCategory');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -17,55 +17,123 @@ function monthRange(offset = 0) {
   return { start, end };
 }
 
-async function sumAmounts(where) {
-  const res = await prisma.transaction.aggregate({ where, _sum: { amount: true } });
-  return res._sum.amount || 0;
-}
-
 function pctChange(current, previous) {
   if (previous === 0) return current === 0 ? 0 : null;
   return ((current - previous) / previous) * 100;
 }
 
+function descriptionMatchesPatterns(description, patterns) {
+  if (!patterns || patterns.length === 0) return false;
+  const lower = (description || '').toLowerCase();
+  return patterns.some((p) => lower.includes(p.toLowerCase()));
+}
+
+function descriptionContains(description, needle) {
+  if (!description || !needle) return false;
+  return description.toLowerCase().includes(needle.toLowerCase());
+}
+
+function enrichTxn(t, ruleMap) {
+  return { ...t, effectiveCategory: effectiveCategoryOf(t, ruleMap) };
+}
+
+async function loadEnrichedRange(prisma, start, end) {
+  const [txns, ruleMap] = await Promise.all([
+    prisma.transaction.findMany({
+      where: { date: { gte: start, lt: end } },
+      include: {
+        splits: { select: { id: true, amount: true, category: true } },
+      },
+    }),
+    loadCategoryRuleMap(prisma),
+  ]);
+  return txns.map((t) => enrichTxn(t, ruleMap));
+}
+
+function computeMonthTotals(txns, excludedPatterns) {
+  let spending = 0;
+  let income = 0;
+  for (const t of txns) {
+    if (descriptionMatchesPatterns(t.description, excludedPatterns)) continue;
+    if (t.splits.length > 0) {
+      for (const s of t.splits) {
+        if (EXCLUDED_CATEGORIES.includes(s.category)) continue;
+        spending += s.amount;
+      }
+      continue;
+    }
+    if (t.effectiveCategory && EXCLUDED_CATEGORIES.includes(t.effectiveCategory)) {
+      continue;
+    }
+    if (t.amount > 0) spending += t.amount;
+    else if (t.amount < 0) income += Math.abs(t.amount);
+  }
+  return { spending, income };
+}
+
+function computeTopCategories(txns, excludedPatterns, total) {
+  const byCategory = new Map();
+  for (const t of txns) {
+    if (descriptionMatchesPatterns(t.description, excludedPatterns)) continue;
+    if (t.splits.length > 0) {
+      for (const s of t.splits) {
+        if (EXCLUDED_CATEGORIES.includes(s.category)) continue;
+        byCategory.set(s.category, (byCategory.get(s.category) || 0) + s.amount);
+      }
+      continue;
+    }
+    if (t.amount <= 0) continue;
+    const cat = t.effectiveCategory;
+    if (!cat) continue;
+    if (EXCLUDED_CATEGORIES.includes(cat)) continue;
+    byCategory.set(cat, (byCategory.get(cat) || 0) + t.amount);
+  }
+  return [...byCategory.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([category, amount]) => ({
+      category,
+      amount,
+      percent: total > 0 ? (amount / total) * 100 : 0,
+    }));
+}
+
+function computeBudgetSpent(budget, txns, billNames, excludedPatterns) {
+  if (EXCLUDED_CATEGORIES.includes(budget.category)) return 0;
+  let total = 0;
+  for (const t of txns) {
+    if (descriptionMatchesPatterns(t.description, excludedPatterns)) continue;
+    if (t.splits.length > 0) {
+      for (const s of t.splits) {
+        if (s.category === budget.category) total += s.amount;
+      }
+      continue;
+    }
+    if (t.amount <= 0) continue;
+    if (t.effectiveCategory && EXCLUDED_CATEGORIES.includes(t.effectiveCategory)) continue;
+    const categoryMatches = t.effectiveCategory === budget.category;
+    const descMatches = billNames.some((n) => descriptionContains(t.description, n));
+    if (categoryMatches || descMatches) total += t.amount;
+  }
+  return total;
+}
+
 router.get('/', async (req, res) => {
   try {
-    const NON_TRANSFER_DESCRIPTION = await getNonTransferDescriptionFilter(prisma);
+    const excludedPatterns = await getExcludedDescriptions(prisma);
     const now = new Date();
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
     const { start: thisMonthStart, end: thisMonthEnd } = monthRange(0);
     const { start: lastMonthStart, end: lastMonthEnd } = monthRange(-1);
 
-    const [spendingThis, spendingLast, incomeThisRaw, incomeLastRaw] =
-      await Promise.all([
-        sumAmounts({
-          date: { gte: thisMonthStart, lt: thisMonthEnd },
-          amount: { gt: 0 },
-          ...NON_TRANSFER_CATEGORY,
-          ...NON_TRANSFER_DESCRIPTION,
-        }),
-        sumAmounts({
-          date: { gte: lastMonthStart, lt: lastMonthEnd },
-          amount: { gt: 0 },
-          ...NON_TRANSFER_CATEGORY,
-          ...NON_TRANSFER_DESCRIPTION,
-        }),
-        sumAmounts({
-          date: { gte: thisMonthStart, lt: thisMonthEnd },
-          amount: { lt: 0 },
-          ...NON_TRANSFER_CATEGORY,
-          ...NON_TRANSFER_DESCRIPTION,
-        }),
-        sumAmounts({
-          date: { gte: lastMonthStart, lt: lastMonthEnd },
-          amount: { lt: 0 },
-          ...NON_TRANSFER_CATEGORY,
-          ...NON_TRANSFER_DESCRIPTION,
-        }),
-      ]);
+    const [thisMonthTxns, lastMonthTxns] = await Promise.all([
+      loadEnrichedRange(prisma, thisMonthStart, thisMonthEnd),
+      loadEnrichedRange(prisma, lastMonthStart, lastMonthEnd),
+    ]);
 
-    const incomeThis = Math.abs(incomeThisRaw);
-    const incomeLast = Math.abs(incomeLastRaw);
+    const thisTotals = computeMonthTotals(thisMonthTxns, excludedPatterns);
+    const lastTotals = computeMonthTotals(lastMonthTxns, excludedPatterns);
 
     const recentTransactions = await prisma.transaction.findMany({
       orderBy: { date: 'desc' },
@@ -90,7 +158,6 @@ router.get('/', async (req, res) => {
         },
         select: { name: true, budgetCategory: true },
       });
-
       const billNamesByBudgetCategory = new Map();
       for (const bill of linkedBills) {
         if (!billNamesByBudgetCategory.has(bill.budgetCategory)) {
@@ -99,52 +166,15 @@ router.get('/', async (req, res) => {
         billNamesByBudgetCategory.get(bill.budgetCategory).push(bill.name);
       }
 
-      budgetsWithSpent = await Promise.all(
-        budgets.map(async (b) => {
-          if (EXCLUDED_CATEGORIES.includes(b.category)) {
-            return { ...b, spent: 0 };
-          }
-          const billNames = billNamesByBudgetCategory.get(b.category) || [];
-          const orClauses = [{ category: b.category }];
-          for (const name of billNames) {
-            orClauses.push({
-              description: { contains: name, mode: 'insensitive' },
-            });
-          }
-          const unsplit = await prisma.transaction.aggregate({
-            where: {
-              date: { gte: thisMonthStart, lt: thisMonthEnd },
-              amount: { gt: 0 },
-              splits: { none: {} },
-              ...NON_TRANSFER_DESCRIPTION,
-              AND: [
-                { OR: orClauses },
-                {
-                  OR: [
-                    { category: null },
-                    { category: { notIn: EXCLUDED_CATEGORIES } },
-                  ],
-                },
-              ],
-            },
-            _sum: { amount: true },
-          });
-          const fromSplits = await prisma.transactionSplit.aggregate({
-            where: {
-              category: b.category,
-              transaction: {
-                date: { gte: thisMonthStart, lt: thisMonthEnd },
-                amount: { gt: 0 },
-                ...NON_TRANSFER_DESCRIPTION,
-              },
-            },
-            _sum: { amount: true },
-          });
-          const spent =
-            (unsplit._sum.amount || 0) + (fromSplits._sum.amount || 0);
-          return { ...b, spent };
-        })
-      );
+      budgetsWithSpent = budgets.map((b) => ({
+        ...b,
+        spent: computeBudgetSpent(
+          b,
+          thisMonthTxns,
+          billNamesByBudgetCategory.get(b.category) || [],
+          excludedPatterns
+        ),
+      }));
     }
 
     const bills = await prisma.bill.findMany({
@@ -157,38 +187,23 @@ router.get('/', async (req, res) => {
     }));
     const billsWithStatus = await enrichBillsWithPayments(prisma, withStatus);
 
-    const groupedCategories = await prisma.transaction.groupBy({
-      by: ['category'],
-      where: {
-        date: { gte: thisMonthStart, lt: thisMonthEnd },
-        amount: { gt: 0 },
-        category: { not: null, notIn: EXCLUDED_CATEGORIES },
-        ...NON_TRANSFER_DESCRIPTION,
-      },
-      _sum: { amount: true },
-      orderBy: { _sum: { amount: 'desc' } },
-      take: 5,
-    });
-    const topCategories = groupedCategories.map((g) => {
-      const amount = g._sum.amount || 0;
-      return {
-        category: g.category,
-        amount,
-        percent: spendingThis > 0 ? (amount / spendingThis) * 100 : 0,
-      };
-    });
+    const topCategories = computeTopCategories(
+      thisMonthTxns,
+      excludedPatterns,
+      thisTotals.spending
+    );
 
     res.json({
       netWorth: { totalBalance: 0 },
       spending: {
-        thisMonth: spendingThis,
-        lastMonth: spendingLast,
-        percentChange: pctChange(spendingThis, spendingLast),
+        thisMonth: thisTotals.spending,
+        lastMonth: lastTotals.spending,
+        percentChange: pctChange(thisTotals.spending, lastTotals.spending),
       },
       income: {
-        thisMonth: incomeThis,
-        lastMonth: incomeLast,
-        percentChange: pctChange(incomeThis, incomeLast),
+        thisMonth: thisTotals.income,
+        lastMonth: lastTotals.income,
+        percentChange: pctChange(thisTotals.income, lastTotals.income),
       },
       recentTransactions,
       budgets: budgetsWithSpent,

@@ -33,10 +33,19 @@ model Transaction {
   logoUrl          String?
   amount           Float
   category         String?
+  categoryOverride String?
   pending          Boolean            @default(false)
   source           String // "plaid" | "finicity" | "manual"
   createdAt        DateTime           @default(now())
   splits           TransactionSplit[]
+}
+
+model CategoryRule {
+  id               String   @id @default(uuid())
+  description      String   @unique
+  categoryOverride String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model MerchantRule {

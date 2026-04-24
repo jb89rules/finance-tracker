@@ -1,5 +1,10 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const {
+  loadCategoryRuleMap,
+  effectiveCategoryOf,
+  hasSplits,
+} = require('../lib/effectiveCategory');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -34,12 +39,11 @@ router.get('/', async (req, res) => {
   const { category, account, search } = req.query;
 
   const where = {};
-  if (category) where.category = category;
   if (account) where.accountId = account;
   if (search) where.description = { contains: String(search), mode: 'insensitive' };
 
   try {
-    const [transactions, rules] = await Promise.all([
+    const [transactions, merchantRules, categoryRuleMap] = await Promise.all([
       prisma.transaction.findMany({
         where,
         orderBy: { date: 'desc' },
@@ -51,17 +55,79 @@ router.get('/', async (req, res) => {
       prisma.merchantRule.findMany({
         select: { description: true, merchantOverride: true },
       }),
+      loadCategoryRuleMap(prisma),
     ]);
 
-    const ruleMap = new Map(rules.map((r) => [r.description, r.merchantOverride]));
-    const enriched = transactions.map((t) => ({
+    const merchantRuleMap = new Map(
+      merchantRules.map((r) => [r.description, r.merchantOverride])
+    );
+    let enriched = transactions.map((t) => ({
       ...t,
-      displayName: computeDisplayName(t, ruleMap),
+      displayName: computeDisplayName(t, merchantRuleMap),
+      effectiveCategory: effectiveCategoryOf(t, categoryRuleMap),
     }));
+
+    if (category) {
+      enriched = enriched.filter((t) => t.effectiveCategory === category);
+    }
+
     res.json(enriched);
   } catch (err) {
     console.error('[transactions] list', err.message);
     res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+router.patch('/:id/category', async (req, res) => {
+  const { id } = req.params;
+  const { categoryOverride, applyToAll } = req.body || {};
+
+  const raw =
+    categoryOverride === null || categoryOverride === undefined
+      ? null
+      : typeof categoryOverride === 'string'
+      ? categoryOverride.trim() || null
+      : null;
+
+  try {
+    const txn = await prisma.transaction.findUnique({
+      where: { id },
+      include: { splits: { select: { id: true } } },
+    });
+    if (!txn) return res.status(404).json({ error: 'Transaction not found' });
+    if (hasSplits(txn)) {
+      return res
+        .status(400)
+        .json({ error: 'Cannot override category on a split transaction' });
+    }
+
+    if (applyToAll && raw) {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.categoryRule.upsert({
+          where: { description: txn.description },
+          update: { categoryOverride: raw },
+          create: { description: txn.description, categoryOverride: raw },
+        });
+        const updated = await tx.transaction.updateMany({
+          where: {
+            description: txn.description,
+            splits: { none: {} },
+          },
+          data: { categoryOverride: raw },
+        });
+        return updated.count;
+      });
+      return res.json({ updated: result });
+    }
+
+    await prisma.transaction.update({
+      where: { id },
+      data: { categoryOverride: raw },
+    });
+    res.json({ updated: 1 });
+  } catch (err) {
+    console.error('[transactions] category patch', err.message);
+    res.status(500).json({ error: 'Failed to update category' });
   }
 });
 
