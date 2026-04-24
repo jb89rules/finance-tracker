@@ -56,9 +56,11 @@ function descriptionMatchesBillName(description, billName) {
   const desc = (description || '').toLowerCase();
   const name = (billName || '').toLowerCase().trim();
   if (!desc || !name) return false;
-  if (desc.includes(name)) return true;
-  const words = desc.split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
-  return words.some((w) => name.includes(w));
+  const tokenize = (s) => s.split(/[^a-z0-9]+/).filter(Boolean);
+  const descTokens = new Set(tokenize(desc));
+  const nameTokens = tokenize(name);
+  if (nameTokens.length === 0) return false;
+  return nameTokens.every((t) => descTokens.has(t));
 }
 
 async function findBillPayment(prisma, bill) {

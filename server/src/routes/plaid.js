@@ -158,9 +158,75 @@ router.post('/sync', async (req, res) => {
 
     let added = 0;
 
-    for (const [, accessToken] of itemAccessTokens) {
-      let cursor;
+    async function upsertPlaidTxn(t) {
+      const acct = await prisma.account.findUnique({
+        where: { id: t.account_id },
+        select: { id: true },
+      });
+      if (!acct) return;
+
+      const existing = await prisma.transaction.findUnique({
+        where: { id: t.transaction_id },
+        select: {
+          id: true,
+          merchantOverride: true,
+          categoryOverride: true,
+          _count: { select: { splits: true } },
+        },
+      });
+
+      const rawCategory =
+        t.personal_finance_category?.primary ||
+        (Array.isArray(t.category) && t.category[0]) ||
+        null;
+      const category = rawCategory ? formatCategory(rawCategory) : null;
+
+      const merchantOverride = merchantRuleMap.get(t.name) || null;
+      const categoryOverride = categoryRuleMap.get(t.name) || null;
+
+      const data = {
+        accountId: t.account_id,
+        date: new Date(t.date),
+        description: t.name,
+        merchantName: t.merchant_name || null,
+        logoUrl: t.logo_url || null,
+        amount: t.amount,
+        category,
+        pending: t.pending === true,
+        source: 'plaid',
+      };
+
+      const createData = { ...data };
+      if (merchantOverride) createData.merchantOverride = merchantOverride;
+      if (categoryOverride) createData.categoryOverride = categoryOverride;
+
+      const updateData = { ...data };
+      if (merchantOverride && !existing?.merchantOverride) {
+        updateData.merchantOverride = merchantOverride;
+      }
+      const existingHasSplits = (existing?._count?.splits || 0) > 0;
+      if (
+        categoryOverride &&
+        !existing?.categoryOverride &&
+        !existingHasSplits
+      ) {
+        updateData.categoryOverride = categoryOverride;
+      }
+
+      await prisma.transaction.upsert({
+        where: { id: t.transaction_id },
+        update: updateData,
+        create: { id: t.transaction_id, ...createData },
+      });
+
+      if (!existing) added++;
+    }
+
+    for (const [itemId, accessToken] of itemAccessTokens) {
+      const item = await prisma.plaidItem.findUnique({ where: { itemId } });
+      let cursor = item?.cursor || undefined;
       let hasMore = true;
+      let nextCursor = cursor;
 
       while (hasMore) {
         const resp = await plaid.transactionsSync({
@@ -169,72 +235,27 @@ router.post('/sync', async (req, res) => {
         });
 
         for (const t of resp.data.added) {
-          const acct = await prisma.account.findUnique({
-            where: { id: t.account_id },
-            select: { id: true },
+          await upsertPlaidTxn(t);
+        }
+        for (const t of resp.data.modified) {
+          await upsertPlaidTxn(t);
+        }
+        for (const r of resp.data.removed) {
+          await prisma.transaction.deleteMany({
+            where: { id: r.transaction_id },
           });
-          if (!acct) continue;
-
-          const existing = await prisma.transaction.findUnique({
-            where: { id: t.transaction_id },
-            select: {
-              id: true,
-              merchantOverride: true,
-              categoryOverride: true,
-              _count: { select: { splits: true } },
-            },
-          });
-
-          const rawCategory =
-            t.personal_finance_category?.primary ||
-            (Array.isArray(t.category) && t.category[0]) ||
-            null;
-          const category = rawCategory ? formatCategory(rawCategory) : null;
-
-          const merchantOverride = merchantRuleMap.get(t.name) || null;
-          const categoryOverride = categoryRuleMap.get(t.name) || null;
-
-          const data = {
-            accountId: t.account_id,
-            date: new Date(t.date),
-            description: t.name,
-            merchantName: t.merchant_name || null,
-            logoUrl: t.logo_url || null,
-            amount: t.amount,
-            category,
-            pending: t.pending === true,
-            source: 'plaid',
-          };
-
-          const createData = { ...data };
-          if (merchantOverride) createData.merchantOverride = merchantOverride;
-          if (categoryOverride) createData.categoryOverride = categoryOverride;
-
-          const updateData = { ...data };
-          if (merchantOverride && !existing?.merchantOverride) {
-            updateData.merchantOverride = merchantOverride;
-          }
-          const existingHasSplits = (existing?._count?.splits || 0) > 0;
-          if (
-            categoryOverride &&
-            !existing?.categoryOverride &&
-            !existingHasSplits
-          ) {
-            updateData.categoryOverride = categoryOverride;
-          }
-
-          await prisma.transaction.upsert({
-            where: { id: t.transaction_id },
-            update: updateData,
-            create: { id: t.transaction_id, ...createData },
-          });
-
-          if (!existing) added++;
         }
 
         hasMore = resp.data.has_more;
         cursor = resp.data.next_cursor;
+        nextCursor = resp.data.next_cursor;
       }
+
+      await prisma.plaidItem.upsert({
+        where: { itemId },
+        update: { cursor: nextCursor },
+        create: { itemId, cursor: nextCursor },
+      });
     }
 
     for (const [, accessToken] of itemAccessTokens) {
@@ -361,6 +382,8 @@ router.post('/disconnect-item', async (req, res) => {
       where: { itemId, source: 'plaid' },
       data: { accessToken: null, itemId: null },
     });
+
+    await prisma.plaidItem.deleteMany({ where: { itemId } });
 
     res.json({ success: true });
   } catch (err) {

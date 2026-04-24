@@ -9,7 +9,8 @@ See [README.md](./README.md) for setup/run instructions. This document is the cu
 ## Tech stack
 
 - **Client**: React 18, Vite 5, React Router 6, Tailwind CSS (dark theme), Axios, react-plaid-link
-- **Server**: Node.js, Express 4, Prisma 5 (PostgreSQL), Plaid Node SDK
+- **Server**: Node.js, Express 4, Prisma 6 (PostgreSQL), Plaid Node SDK
+- **Tests**: Vitest in both packages (`npm test` / `npm run test:watch`); covers pure helpers in `*/lib/` only — no DB/HTTP/UI tests yet
 - **Database**: PostgreSQL on Railway (single shared DB for dev + prod)
 - **Auth**: single-user password; bearer token = `sha256(APP_PASSWORD)` validated via timing-safe compare. All `/api/*` routes except `/health` and `/api/auth/login` require the header `Authorization: Bearer <token>`.
 - **Deployment**: Vercel (client, root `client/`, framework Vite); Railway (server, root `server/`, start command `npx prisma migrate deploy && node src/index.js`)
@@ -34,7 +35,7 @@ See [README.md](./README.md) for setup/run instructions. This document is the cu
 │       │   └── Sidebar.jsx       (desktop nav, hidden md:flex)
 │       ├── lib/
 │       │   ├── api.js                 (axios instance + request/response interceptors for bearer + 401 redirect)
-│       │   ├── excludedCategories.js  (static EXCLUDED_CATEGORIES + EXCLUDED_DESCRIPTIONS defaults; isTransferTransaction(t, patterns?))
+│       │   ├── excludedCategories.js  (EXCLUDED_CATEGORIES constant; isTransferTransaction(t, patterns) — patterns must be supplied by caller, typically from /api/settings)
 │       │   └── formatCategory.js      (Plaid raw name → friendly label)
 │       └── pages/
 │           ├── Accounts.jsx
@@ -54,11 +55,13 @@ See [README.md](./README.md) for setup/run instructions. This document is the cu
         ├── middleware/
         │   └── auth.js   (authMiddleware, hashPassword)
         ├── lib/
-        │   ├── billStatus.js         (computeBillStatus, enrichBillsWithPayments, descriptionMatchesBillName, findBillPayment)
-        │   ├── effectiveCategory.js  (loadCategoryRuleMap, effectiveCategoryOf, hasSplits)
-        │   ├── excludedCategories.js (EXCLUDED_CATEGORIES, default EXCLUDED_DESCRIPTIONS; getExcludedDescriptions(prisma) reads AppSetting.excludedDescriptions at query time; NON_TRANSFER_CATEGORY; buildNonTransferDescriptionFilter)
-        │   ├── formatCategory.js     (server copy of the client formatter; used on sync)
-        │   └── plaid.js              (Plaid API client factory; PLAID_ENV + credentials)
+        │   ├── billStatus.js          (computeBillStatus, enrichBillsWithPayments, descriptionMatchesBillName, findBillPayment)
+        │   ├── dashboardAggregates.js (pure helpers extracted from routes/dashboard.js: pctChange, descriptionMatchesPatterns, descriptionContains, computeMonthTotals, computeTopCategories, computeBudgetSpent)
+        │   ├── effectiveCategory.js   (loadCategoryRuleMap, effectiveCategoryOf, hasSplits)
+        │   ├── excludedCategories.js  (EXCLUDED_CATEGORIES, default EXCLUDED_DESCRIPTIONS; getExcludedDescriptions(prisma) reads AppSetting.excludedDescriptions at query time; NON_TRANSFER_CATEGORY; buildNonTransferDescriptionFilter)
+        │   ├── formatCategory.js      (server copy of the client formatter; used on sync)
+        │   ├── plaid.js               (Plaid API client factory; PLAID_ENV + credentials)
+        │   └── __tests__/             (Vitest unit tests for the pure helpers above)
         ├── routes/
         │   ├── auth.js, bills.js, budgets.js, categories.js, categoryRules.js,
         │   ├── dashboard.js, merchantRules.js, plaid.js, settings.js, transactions.js
@@ -128,6 +131,13 @@ Auto-applies a category to transactions whose description matches.
 Same shape, but for merchant display name.
 - `id`, `description String @unique`, `merchantOverride String`, `createdAt`, `updatedAt`
 
+### PlaidItem
+Per-Item state for incremental Plaid sync. One row per linked Plaid Item.
+- `itemId String @id` — matches `Account.itemId`
+- `cursor String?` — most recent `next_cursor` from `transactionsSync`. Null on first sync. Persisted only after the full pagination loop completes; if a sync fails mid-pagination, the next attempt resumes from the previous cursor.
+- `createdAt`, `updatedAt`
+- Created/upserted at the end of each successful per-Item sync; deleted on `disconnect-item`.
+
 ### AppSetting
 Key/value store for mutable app configuration (user-editable from Settings).
 - `key String @id`, `value String`, `updatedAt`
@@ -149,11 +159,11 @@ All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `
 - `POST /create-link-token` → `{ link_token }`
 - `POST /create-link-token-update` — body `{ itemId }` → `{ link_token }` for Plaid Link update mode (reconnect a failed Item)
 - `POST /exchange-token` — body `{ public_token, institution_name, accounts[] }` → exchanges public token, fetches initial balances + account masks, upserts Accounts. `{ success: true }`
-- `POST /sync` — pulls transactions for every linked Item (via `transactionsSync` cursor=null every time; idempotent via upsert), preloads MerchantRule + CategoryRule maps, applies them on create (split-aware), then refreshes balances. `{ added: N }`. N is new-only (existence-checked).
+- `POST /sync` — pulls transactions for every linked Item via `transactionsSync` using a per-Item cursor stored in `PlaidItem.cursor`. Loads cursor at start of pagination, processes `added` (upsert), `modified` (upsert, override-preserving), `removed` (delete), and persists `next_cursor` after the loop completes. Preloads MerchantRule + CategoryRule maps, applies them on create (split-aware), then refreshes balances. `{ added: N }`. N is new-only (existence-checked).
 - `POST /refresh-balances` → `{ accounts, failed: [{ itemId, error_code }] }`. Per-item tolerant; one dead item doesn't fail the whole call.
 - `GET /balances` → `{ total, institutions: [{ name, total, accounts: [...] }] }` — total is net worth (depository + investment minus credit + loan).
 - `GET /accounts` — flat list of all Plaid accounts.
-- `POST /disconnect-item` — body `{ itemId }` → best-effort `itemRemove` on Plaid + clears local `accessToken`/`itemId`. Keeps Account row + history. `{ success: true }`
+- `POST /disconnect-item` — body `{ itemId }` → best-effort `itemRemove` on Plaid + clears local `accessToken`/`itemId` + deletes the `PlaidItem` cursor row. Keeps Account row + history. `{ success: true }`
 
 ### Transactions — `/api/transactions`
 - `GET /` — query `?category`, `?account`, `?search`. Joins `MerchantRule` and `CategoryRule` in-memory and returns each txn with computed `displayName` and `effectiveCategory` (null for split txns). The `category` query filter uses `effectiveCategory`.
@@ -180,7 +190,6 @@ All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `
 
 ### Dashboard — `/api/dashboard`
 - `GET /` — one-shot payload:
-  - `netWorth: { totalBalance }` — currently hardcoded 0 in the payload; the real number lives in `GET /api/plaid/balances.total`. Dashboard.jsx fetches that directly.
   - `spending: { thisMonth, lastMonth, percentChange }`, `income: { thisMonth, lastMonth, percentChange }` — computed in-memory from enriched transactions. Respects `effectiveCategory`, EXCLUDED_CATEGORIES, and AppSetting-backed description patterns. For split txns, uses split amounts/categories; transfers excluded.
   - `recentTransactions` — last 5 with account info.
   - `budgets` — current month's budgets with `spent`.
@@ -210,6 +219,7 @@ All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `
 - `DATABASE_URL` — Postgres connection string (use Railway's public proxy URL for local dev, e.g. `mainline.proxy.rlwy.net:53639`)
 - `FRONTEND_URL` — exact origin allowed by CORS (no trailing slash). Must match the Vercel URL in production.
 - `PORT` — default `3001`. Railway sets this automatically.
+- `HOST` — interface to bind. Default: `0.0.0.0` when `NODE_ENV=production` (Railway), `127.0.0.1` otherwise (local dev — keeps the dev server off the LAN). Override only when you need to test from another device on the same network.
 - `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` (`sandbox | development | production`). Local is currently on `development`.
 - `APP_PASSWORD` — the single-user login password. Local value: `password` (placeholder; change anytime). Production must have its own set in Railway.
 
@@ -244,6 +254,7 @@ Applied in `server/prisma/migrations/` (ordered):
 8. `20260424033509_add_settings` — Category, AppSetting
 9. `20260424144349_add_merchant_rules` — MerchantRule + `Transaction.merchantOverride`
 10. `20260424213405_add_category_rules` — CategoryRule + `Transaction.categoryOverride`
+11. `20260424220000_add_plaid_item_cursor` — PlaidItem (per-Item cursor for incremental Plaid sync)
 
 Railway's Start Command is `npx prisma migrate deploy && node src/index.js`, so each deploy auto-applies any pending migrations.
 
@@ -261,6 +272,15 @@ If you point `DATABASE_URL` at a fresh production DB (not the Railway one curren
 
 ## Recent changes (most recent first)
 
+- **Pending-issues sweep** (uncommitted) — worked through every entry in the old "Known issues" list:
+  - Removed dead `netWorth: { totalBalance: 0 }` field from `/api/dashboard` payload (client was already ignoring it and calling `/api/plaid/balances` directly).
+  - Removed the hardcoded `EXCLUDED_DESCRIPTIONS` constant + default-arg fallback from `client/src/lib/excludedCategories.js`. `isTransferTransaction(t, patterns)` now requires the caller to pass patterns explicitly; only consumer (Transactions page) already does.
+  - **Plaid cursor persistence**: new `PlaidItem` model (migration `20260424220000_add_plaid_item_cursor`) with `itemId` PK + `cursor`. `/api/plaid/sync` now loads cursor at the start of each Item's pagination loop, persists `next_cursor` only after the loop completes successfully, and handles `transactionsSync` `modified` (upsert, override-preserving) and `removed` (delete) — not just `added`. `/api/plaid/disconnect-item` cleans up the `PlaidItem` row.
+  - **Bill payment matcher tightened** (`server/src/lib/billStatus.js`): `descriptionMatchesBillName` now requires every bill-name token to appear as a *whole word* in the transaction description. Stops `"sofi"`-in-`"soficity"` substring leaks and shared-common-word false positives (e.g., bill `"Credit Card"` previously matched any txn description containing `"credit"`). Heads-up: bills with very abbreviated `matchKeyword` like `"Net"` no longer match `"NETFLIX"` — set `matchKeyword` to the full token.
+  - **Vitest test suite added** in both packages: `npm test` / `npm run test:watch`. 65 unit tests covering pure helpers in `server/src/lib/` (billStatus, effectiveCategory, excludedCategories, formatCategory, dashboardAggregates) and `client/src/lib/` (formatCategory, excludedCategories). Extracted dashboard's pure aggregation helpers into a new `server/src/lib/dashboardAggregates.js` so they're testable independently of the route's DB calls.
+  - **Prisma upgrade 5.22 → 6.19.3**. Prisma 7 was attempted and rolled back: 7 removed `url` from `schema.prisma` and requires a driver-adapter rewrite of every `new PrismaClient()` site. Stayed on 6.x as a low-risk single-major bump. Schema validates, all 54 server tests pass, smoke-tested every Prisma-backed endpoint (dashboard/transactions/bills/categories/budgets/merchant-rules/settings) — all return correct data.
+  - **Dev server now binds to `127.0.0.1` by default** (`server/src/index.js`): production keeps `0.0.0.0` via `NODE_ENV=production`. `HOST` env var added as opt-in escape hatch for LAN testing. Closes the LAN-exposure compounding-risk with the local `APP_PASSWORD="password"` + shared Railway DB.
+  - Several "pending issue" entries that turned out not to be real bugs were verified-and-removed from the list (Dashboard Transfer In/Out grouping, Category delete/merge UI formatting).
 - **Transactions summary count fix** (`85a28fc`) — the count tile now uses `nonTransfer.length`, matching the spending/income filter. The client `SummaryCards` also loads `excludedDescriptions` from `/api/settings` so user-edited patterns apply on both pages. `isTransferTransaction(t, patterns?)` gained an optional patterns arg.
 - **Category override system** (`addd6c0`) — `CategoryRule` model + per-transaction `Transaction.categoryOverride` + `effectiveCategory` computed server-side. `PATCH /api/transactions/:id/category` with `applyToAll`. Dashboard + Budgets aggregates refactored from SQL to in-memory to honor `effectiveCategory`. Split transactions are guarded everywhere: PATCH rejects them with 400; Plaid sync won't auto-apply a rule to a split txn; `effectiveCategory` is null for splits; aggregations use `split.category` for splits.
 - **Merchant override system** (`11558d5`) — same shape, for merchant display name. `displayName` computed server-side with precedence `merchantOverride > rule > merchantName > description`.
@@ -273,16 +293,9 @@ If you point `DATABASE_URL` at a fresh production DB (not the Railway one curren
 
 ## Known issues / pending items
 
-- **`ITEM_LOGIN_REQUIRED` on Dell Pay** — one existing Plaid Item is in this state and has been since before Development-mode switch. Balances won't refresh for it. User can click **Reconnect** on the Accounts row or in Settings to re-auth; we won't be able to clear it from the DB without that.
-- **Dashboard `netWorth.totalBalance` payload is hardcoded `0`** — Dashboard.jsx works around this by calling `/api/plaid/balances` directly. Not a bug; just an artifact of the initial spec. Could be cleaned up.
-- **Client `EXCLUDED_DESCRIPTIONS` defaults are still hardcoded** — Transactions page now fetches from Settings at runtime, but the module-level defaults in `client/src/lib/excludedCategories.js` aren't wired anywhere else. If a new page in the future uses `isTransferTransaction` without passing `patterns`, it'll silently use the static list.
-- **`topCategories` on Dashboard groups `Transfer In` and `Transfer Out` separately pre-formatter** — formatter maps them to distinct labels now, so they appear as distinct entries in Top Categories if the user removes the transfer exclusion (unlikely in normal use).
-- **Plaid sync cursor is not persisted** — `transactionsSync` is always called with `cursor=null`, so every sync fetches full history and pages through `has_more`. Idempotent via upsert, but wastes API calls. A future change should add a `PlaidItem` model with a cursor field per Item.
-- **Bill payment detection confidence is loose** — matches require description overlap (`contains` or word intersection) + amount within ±10% + date within window. False positives possible if multiple similar-amount transactions exist in the window.
-- **Category delete/merge UI currently formats names in the picker** — if a category has a legacy un-normalized name in the DB, editing it in Settings normalizes it through the cascade.
-- **Prisma client version (5.22)** — Prisma 7.x is out. Upgrade not yet attempted; breaking changes likely in filter syntax.
-- **No test suite** — no unit/integration tests. All verification has been ad-hoc curl smoke tests.
-- **Local `.env` uses password `password`** — explicit throwaway for local dev; production must set a strong value in Railway. See `README.md`.
+- **Prisma 7 upgrade deferred** — currently on `^6.19.3`. Prisma 7 removed `url` from `schema.prisma`; connection URLs now live in `prisma.config.ts` and `PrismaClient` requires a driver adapter (`@prisma/adapter-pg` + `pg`). That refactor touches every `new PrismaClient()` site (10 route files) and needs full per-page verification. Stay on 6.x until there's a feature-driven reason to take it on.
+- **Test coverage limited to pure helpers** — Vitest is wired up in both packages with `npm test` (one-shot) and `npm run test:watch`. Current coverage is unit tests on pure money/aggregation logic in `server/src/lib/` (billStatus, effectiveCategory, excludedCategories, formatCategory, dashboardAggregates) and client `lib/` (formatCategory, excludedCategories) — 65 tests total. No DB-backed integration tests, HTTP endpoint tests, or React component tests yet.
+- **Local `.env` uses password `password`** — explicit throwaway for local dev; production must set a strong value in Railway. The dev server now binds to `127.0.0.1` only (see `HOST` env var) so the weak local password isn't reachable from the LAN, but if you ever set `HOST=0.0.0.0` for cross-device testing, change `APP_PASSWORD` first.
 
 ## Local development quick-reference
 

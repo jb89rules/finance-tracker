@@ -9,6 +9,9 @@ const app = express();
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const HOST =
+  process.env.HOST ||
+  (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 
 app.use(
   cors({
@@ -46,8 +49,8 @@ app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/merchant-rules', authMiddleware, merchantRulesRouter);
 app.use('/api/category-rules', authMiddleware, categoryRulesRouter);
 
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`Server listening on ${HOST}:${PORT}`);
   console.log(`CORS allowing origin: ${FRONTEND_URL}`);
 });
 
