@@ -8,28 +8,34 @@ datasource db {
 }
 
 model Account {
-  id           String        @id @default(uuid())
-  institution  String
-  name         String
-  type         String
-  source       String // "plaid" | "finicity" | "manual"
-  accessToken  String?
-  itemId       String?
-  createdAt    DateTime      @default(now())
-  transactions Transaction[]
+  id               String        @id @default(uuid())
+  institution      String
+  name             String
+  type             String
+  source           String // "plaid" | "finicity" | "manual"
+  accessToken      String?
+  itemId           String?
+  balance          Float?
+  availableBalance Float?
+  accountNumber    String?
+  createdAt        DateTime      @default(now())
+  transactions     Transaction[]
 }
 
 model Transaction {
-  id          String             @id @default(uuid())
-  accountId   String
-  account     Account            @relation(fields: [accountId], references: [id])
-  date        DateTime
-  description String
-  amount      Float
-  category    String?
-  source      String // "plaid" | "finicity" | "manual"
-  createdAt   DateTime           @default(now())
-  splits      TransactionSplit[]
+  id           String             @id @default(uuid())
+  accountId    String
+  account      Account            @relation(fields: [accountId], references: [id])
+  date         DateTime
+  description  String
+  merchantName String?
+  logoUrl      String?
+  amount       Float
+  category     String?
+  pending      Boolean            @default(false)
+  source       String // "plaid" | "finicity" | "manual"
+  createdAt    DateTime           @default(now())
+  splits       TransactionSplit[]
 }
 
 model TransactionSplit {

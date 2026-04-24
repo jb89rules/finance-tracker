@@ -178,6 +178,7 @@ function EmptyLine({ children }) {
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [balances, setBalances] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -185,6 +186,12 @@ export default function Dashboard() {
       .get('/api/dashboard')
       .then((r) => setData(r.data))
       .catch(() => setError('Failed to load dashboard'));
+    api
+      .get('/api/plaid/balances')
+      .then((r) => setBalances(r.data))
+      .catch(() => {
+        /* non-fatal */
+      });
   }, []);
 
   const billsSummary = useMemo(() => {
@@ -226,7 +233,18 @@ export default function Dashboard() {
 
   return (
     <PageShell title="Dashboard" subtitle="Overview of your finances" bare>
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Total balance"
+          value={
+            balances
+              ? currencyFormatter.format(balances.total)
+              : currencyFormatter.format(0)
+          }
+          valueColor={
+            balances && balances.total < 0 ? 'text-red-400' : 'text-slate-100'
+          }
+        />
         <StatCard
           label="Spending this month"
           value={currencyFormatter.format(data.spending.thisMonth)}

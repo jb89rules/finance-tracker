@@ -7,6 +7,31 @@ const { formatCategory } = require('../lib/formatCategory');
 const prisma = new PrismaClient();
 const router = express.Router();
 
+function balanceSign(type) {
+  const t = (type || '').toLowerCase();
+  return t === 'credit' || t === 'loan' ? -1 : 1;
+}
+
+async function fetchItemBalances(accessToken) {
+  const resp = await plaid.accountsBalanceGet({ access_token: accessToken });
+  return resp.data.accounts;
+}
+
+async function refreshItemBalances(accessToken) {
+  const accounts = await fetchItemBalances(accessToken);
+  for (const a of accounts) {
+    await prisma.account.updateMany({
+      where: { id: a.account_id },
+      data: {
+        balance: a.balances?.current ?? null,
+        availableBalance: a.balances?.available ?? null,
+        accountNumber: a.mask ?? null,
+      },
+    });
+  }
+  return accounts;
+}
+
 router.post('/create-link-token', async (req, res) => {
   try {
     const response = await plaid.linkTokenCreate({
@@ -35,26 +60,31 @@ router.post('/exchange-token', async (req, res) => {
     const accessToken = exchange.data.access_token;
     const itemId = exchange.data.item_id;
 
+    const balances = await fetchItemBalances(accessToken);
+    const byId = new Map(balances.map((b) => [b.account_id, b]));
+
     for (const acct of accounts) {
+      const live = byId.get(acct.id);
+      const balance = live?.balances?.current ?? null;
+      const availableBalance = live?.balances?.available ?? null;
+      const accountNumber = live?.mask ?? acct.mask ?? null;
+
+      const baseData = {
+        institution: institution_name || 'Unknown',
+        name: acct.name,
+        type: acct.type,
+        source: 'plaid',
+        accessToken,
+        itemId,
+        balance,
+        availableBalance,
+        accountNumber,
+      };
+
       await prisma.account.upsert({
         where: { id: acct.id },
-        update: {
-          institution: institution_name || 'Unknown',
-          name: acct.name,
-          type: acct.type,
-          source: 'plaid',
-          accessToken,
-          itemId,
-        },
-        create: {
-          id: acct.id,
-          institution: institution_name || 'Unknown',
-          name: acct.name,
-          type: acct.type,
-          source: 'plaid',
-          accessToken,
-          itemId,
-        },
+        update: baseData,
+        create: { id: acct.id, ...baseData },
       });
     }
 
@@ -108,25 +138,22 @@ router.post('/sync', async (req, res) => {
             null;
           const category = rawCategory ? formatCategory(rawCategory) : null;
 
+          const data = {
+            accountId: t.account_id,
+            date: new Date(t.date),
+            description: t.name,
+            merchantName: t.merchant_name || null,
+            logoUrl: t.logo_url || null,
+            amount: t.amount,
+            category,
+            pending: t.pending === true,
+            source: 'plaid',
+          };
+
           await prisma.transaction.upsert({
             where: { id: t.transaction_id },
-            update: {
-              accountId: t.account_id,
-              date: new Date(t.date),
-              description: t.name,
-              amount: t.amount,
-              category,
-              source: 'plaid',
-            },
-            create: {
-              id: t.transaction_id,
-              accountId: t.account_id,
-              date: new Date(t.date),
-              description: t.name,
-              amount: t.amount,
-              category,
-              source: 'plaid',
-            },
+            update: data,
+            create: { id: t.transaction_id, ...data },
           });
 
           if (!existing) added++;
@@ -137,10 +164,102 @@ router.post('/sync', async (req, res) => {
       }
     }
 
+    for (const [, accessToken] of itemAccessTokens) {
+      try {
+        await refreshItemBalances(accessToken);
+      } catch (err) {
+        console.error('[plaid] sync balance refresh', err.response?.data || err.message);
+      }
+    }
+
     res.json({ added });
   } catch (err) {
     console.error('[plaid] sync', err.response?.data || err.message);
     res.status(500).json({ error: 'Failed to sync transactions' });
+  }
+});
+
+router.post('/refresh-balances', async (req, res) => {
+  try {
+    const plaidAccounts = await prisma.account.findMany({
+      where: { source: 'plaid' },
+    });
+
+    const itemAccessTokens = new Map();
+    for (const a of plaidAccounts) {
+      if (a.accessToken && a.itemId && !itemAccessTokens.has(a.itemId)) {
+        itemAccessTokens.set(a.itemId, a.accessToken);
+      }
+    }
+
+    const failed = [];
+    for (const [itemId, accessToken] of itemAccessTokens) {
+      try {
+        await refreshItemBalances(accessToken);
+      } catch (err) {
+        const details = err.response?.data || { message: err.message };
+        console.error('[plaid] refresh-balances item', itemId, details);
+        failed.push({ itemId, error: details.error_code || details.message });
+      }
+    }
+
+    const updated = await prisma.account.findMany({
+      where: { source: 'plaid' },
+      select: {
+        id: true,
+        institution: true,
+        name: true,
+        type: true,
+        balance: true,
+        availableBalance: true,
+        accountNumber: true,
+      },
+      orderBy: [{ institution: 'asc' }, { name: 'asc' }],
+    });
+
+    res.json({ accounts: updated, failed });
+  } catch (err) {
+    console.error('[plaid] refresh-balances', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to refresh balances' });
+  }
+});
+
+router.get('/balances', async (req, res) => {
+  try {
+    const accounts = await prisma.account.findMany({
+      where: { source: 'plaid' },
+      select: {
+        id: true,
+        institution: true,
+        name: true,
+        type: true,
+        balance: true,
+        availableBalance: true,
+        accountNumber: true,
+      },
+      orderBy: [{ institution: 'asc' }, { name: 'asc' }],
+    });
+
+    const groups = new Map();
+    for (const a of accounts) {
+      const key = a.institution || 'Unknown';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(a);
+    }
+
+    const institutions = [...groups.entries()].map(([name, list]) => {
+      const subtotal = list.reduce(
+        (s, a) => s + balanceSign(a.type) * (a.balance || 0),
+        0
+      );
+      return { name, total: subtotal, accounts: list };
+    });
+
+    const total = institutions.reduce((s, inst) => s + inst.total, 0);
+    res.json({ total, institutions });
+  } catch (err) {
+    console.error('[plaid] balances', err.message);
+    res.status(500).json({ error: 'Failed to fetch balances' });
   }
 });
 
@@ -154,9 +273,12 @@ router.get('/accounts', async (req, res) => {
         name: true,
         type: true,
         source: true,
+        balance: true,
+        availableBalance: true,
+        accountNumber: true,
         createdAt: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ institution: 'asc' }, { name: 'asc' }],
     });
     res.json(accounts);
   } catch (err) {

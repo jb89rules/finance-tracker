@@ -111,6 +111,38 @@ function CategoryPicker({ value, categories, onChange }) {
   );
 }
 
+function MerchantAvatar({ logoUrl, name }) {
+  const [broken, setBroken] = useState(false);
+  if (logoUrl && !broken) {
+    return (
+      <img
+        src={logoUrl}
+        alt=""
+        onError={() => setBroken(true)}
+        className="h-5 w-5 shrink-0 rounded-full bg-surface-600 object-cover"
+      />
+    );
+  }
+  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
+  return (
+    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-600 text-[10px] font-medium text-slate-400">
+      {initial}
+    </div>
+  );
+}
+
+function PendingBadge() {
+  return (
+    <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+      Pending
+    </span>
+  );
+}
+
+function displayNameFor(t) {
+  return t.merchantName || t.description;
+}
+
 function ScissorsIcon() {
   return (
     <svg
@@ -576,7 +608,10 @@ export default function Transactions() {
     return transactions.filter((t) => {
       if (category && t.category !== category) return false;
       if (account && t.accountId !== account) return false;
-      if (q && !t.description.toLowerCase().includes(q)) return false;
+      if (q) {
+        const hay = `${t.description} ${t.merchantName || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
   }, [transactions, search, category, account]);
@@ -702,8 +737,15 @@ export default function Transactions() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 text-sm text-slate-100">
-                    {t.description}
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <MerchantAvatar
+                      logoUrl={t.logoUrl}
+                      name={displayNameFor(t)}
+                    />
+                    <div className="min-w-0 flex-1 truncate text-sm text-slate-100">
+                      {displayNameFor(t)}
+                    </div>
+                    {t.pending && <PendingBadge />}
                   </div>
                   <div
                     className={`shrink-0 text-sm font-medium tabular-nums ${
@@ -768,7 +810,16 @@ export default function Transactions() {
                   <td className="whitespace-nowrap px-4 py-3 text-slate-400">
                     {formatDate(t.date)}
                   </td>
-                  <td className="px-4 py-3 text-slate-100">{t.description}</td>
+                  <td className="px-4 py-3 text-slate-100">
+                    <div className="flex items-center gap-2">
+                      <MerchantAvatar
+                        logoUrl={t.logoUrl}
+                        name={displayNameFor(t)}
+                      />
+                      <span className="truncate">{displayNameFor(t)}</span>
+                      {t.pending && <PendingBadge />}
+                    </div>
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-400">
                     {t.account
                       ? `${t.account.name} — ${t.account.institution}`
