@@ -122,6 +122,16 @@ function validateBillInput(body, { partial }) {
     }
   }
 
+  if (body.budgetCategory !== undefined) {
+    if (body.budgetCategory === null || body.budgetCategory === '') {
+      data.budgetCategory = null;
+    } else if (typeof body.budgetCategory !== 'string') {
+      errors.push('budgetCategory must be a string or null');
+    } else {
+      data.budgetCategory = body.budgetCategory.trim() || null;
+    }
+  }
+
   if (body.isActive !== undefined) {
     if (typeof body.isActive !== 'boolean') {
       errors.push('isActive must be a boolean');
@@ -146,6 +156,7 @@ router.post('/', async (req, res) => {
         amount: data.amount,
         dueDay: data.dueDay,
         category: data.category ?? null,
+        budgetCategory: data.budgetCategory ?? null,
         isActive: data.isActive ?? true,
       },
     });

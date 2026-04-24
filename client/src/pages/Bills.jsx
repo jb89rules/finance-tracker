@@ -143,6 +143,11 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
                 {formatCategory(bill.category)}
               </span>
             )}
+            {bill.budgetCategory && (
+              <span className="ml-1 text-xs text-slate-500">
+                → {formatCategory(bill.budgetCategory)}
+              </span>
+            )}
           </div>
           {actions}
         </div>
@@ -156,6 +161,11 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete }) {
             {bill.category && (
               <span className="rounded-full bg-surface-600 px-2 py-0.5 text-xs font-medium text-slate-300">
                 {formatCategory(bill.category)}
+              </span>
+            )}
+            {bill.budgetCategory && (
+              <span className="text-xs text-slate-500">
+                → {formatCategory(bill.budgetCategory)}
               </span>
             )}
           </div>
@@ -184,9 +194,51 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     initial?.dueDay !== undefined ? String(initial.dueDay) : ''
   );
   const [category, setCategory] = useState(initial?.category ?? '');
+  const [budgetCategory, setBudgetCategory] = useState(initial?.budgetCategory ?? '');
+  const [budgetCategoryTouched, setBudgetCategoryTouched] = useState(
+    Boolean(initial?.budgetCategory)
+  );
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  const suggestBudgetCategory = (billName, fallback) => {
+    const lower = billName.toLowerCase();
+    const has = (term) => lower.includes(term);
+    if (
+      has('netflix') || has('spotify') || has('hulu') ||
+      has('disney') || has('apple') || has('amazon prime')
+    ) return 'Entertainment';
+    if (
+      has('electric') || has('gas') || has('water') ||
+      has('internet') || has('phone') || has('utility')
+    ) return 'Utilities';
+    if (has('insurance')) return 'Insurance';
+    if (has('loan') || has('payment') || has('mortgage')) return 'Loan Payments';
+    if (has('gym') || has('fitness')) return 'Personal Care';
+    return fallback || '';
+  };
+
+  const handleNameChange = (e) => {
+    const next = e.target.value;
+    setName(next);
+    if (!budgetCategoryTouched) {
+      setBudgetCategory(suggestBudgetCategory(next, category));
+    }
+  };
+
+  const handleCategoryChange = (e) => {
+    const next = e.target.value;
+    setCategory(next);
+    if (!budgetCategoryTouched) {
+      setBudgetCategory(suggestBudgetCategory(name, next));
+    }
+  };
+
+  const handleBudgetCategoryChange = (e) => {
+    setBudgetCategory(e.target.value);
+    setBudgetCategoryTouched(true);
+  };
 
   useEffect(() => {
     const handler = (e) => {
@@ -217,6 +269,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
         amount: amountNum,
         dueDay: dayNum,
         category: category.trim() || null,
+        budgetCategory: budgetCategory.trim() || null,
         isActive,
       });
     } catch (err) {
@@ -246,7 +299,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
             <input
               autoFocus
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={handleNameChange}
               placeholder="e.g. Netflix"
               className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
             />
@@ -290,7 +343,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
             <input
               list="bill-categories"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={handleCategoryChange}
               placeholder="Type or select a category"
               className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
             />
@@ -299,6 +352,27 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                 <option key={c} value={c} />
               ))}
             </datalist>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+              Budget Category
+            </label>
+            <input
+              list="bill-budget-categories"
+              value={budgetCategory}
+              onChange={handleBudgetCategoryChange}
+              placeholder="Select or type a budget category"
+              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+            />
+            <datalist id="bill-budget-categories">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            <p className="mt-1 text-xs text-slate-500">
+              Transactions in this category will count toward this budget
+            </p>
           </div>
 
           <div className="flex items-center justify-between rounded-md bg-surface-700/50 px-3 py-2">

@@ -40,11 +40,12 @@ model Budget {
 }
 
 model Bill {
-  id        String   @id @default(uuid())
-  name      String
-  amount    Float
-  dueDay    Int
-  category  String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  name           String
+  amount         Float
+  dueDay         Int
+  category       String?
+  budgetCategory String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
 }

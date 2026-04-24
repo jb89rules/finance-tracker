@@ -68,22 +68,43 @@ router.get('/', async (req, res) => {
 
     let budgetsWithSpent = [];
     if (budgets.length > 0) {
-      const spendingByCategory = await prisma.transaction.groupBy({
-        by: ['category'],
+      const budgetCategories = budgets.map((b) => b.category);
+      const linkedBills = await prisma.bill.findMany({
         where: {
-          date: { gte: thisMonthStart, lt: thisMonthEnd },
-          amount: { gt: 0 },
-          category: { in: budgets.map((b) => b.category) },
+          isActive: true,
+          budgetCategory: { in: budgetCategories },
         },
-        _sum: { amount: true },
+        select: { name: true, budgetCategory: true },
       });
-      const spentMap = new Map(
-        spendingByCategory.map((row) => [row.category, row._sum.amount || 0])
+
+      const billNamesByBudgetCategory = new Map();
+      for (const bill of linkedBills) {
+        if (!billNamesByBudgetCategory.has(bill.budgetCategory)) {
+          billNamesByBudgetCategory.set(bill.budgetCategory, []);
+        }
+        billNamesByBudgetCategory.get(bill.budgetCategory).push(bill.name);
+      }
+
+      budgetsWithSpent = await Promise.all(
+        budgets.map(async (b) => {
+          const billNames = billNamesByBudgetCategory.get(b.category) || [];
+          const orClauses = [{ category: b.category }];
+          for (const name of billNames) {
+            orClauses.push({
+              description: { contains: name, mode: 'insensitive' },
+            });
+          }
+          const agg = await prisma.transaction.aggregate({
+            where: {
+              date: { gte: thisMonthStart, lt: thisMonthEnd },
+              amount: { gt: 0 },
+              OR: orClauses,
+            },
+            _sum: { amount: true },
+          });
+          return { ...b, spent: agg._sum.amount || 0 };
+        })
       );
-      budgetsWithSpent = budgets.map((b) => ({
-        ...b,
-        spent: spentMap.get(b.category) || 0,
-      }));
     }
 
     const bills = await prisma.bill.findMany({
