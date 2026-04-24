@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
+import { EXCLUDED_CATEGORIES } from '../lib/excludedCategories.js';
 import PageShell from '../components/PageShell.jsx';
 
 function formatDate(iso) {
@@ -513,10 +514,13 @@ function SummaryCards({ transactions }) {
       const d = new Date(t.date);
       return d.getFullYear() === year && d.getMonth() === month;
     });
-    const spending = thisMonth
+    const nonTransfer = thisMonth.filter(
+      (t) => !EXCLUDED_CATEGORIES.includes(t.category)
+    );
+    const spending = nonTransfer
       .filter((t) => t.amount > 0)
       .reduce((sum, t) => sum + t.amount, 0);
-    const income = thisMonth
+    const income = nonTransfer
       .filter((t) => t.amount < 0)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
     return { spending, income, count: thisMonth.length };
@@ -567,6 +571,7 @@ export default function Transactions() {
   const [category, setCategory] = useState('');
   const [account, setAccount] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [showTransfers, setShowTransfers] = useState(false);
   const [error, setError] = useState(null);
   const [splitEditorTxn, setSplitEditorTxn] = useState(null);
 
@@ -606,6 +611,7 @@ export default function Transactions() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return transactions.filter((t) => {
+      if (!showTransfers && EXCLUDED_CATEGORIES.includes(t.category)) return false;
       if (category && t.category !== category) return false;
       if (account && t.accountId !== account) return false;
       if (q) {
@@ -614,7 +620,7 @@ export default function Transactions() {
       }
       return true;
     });
-  }, [transactions, search, category, account]);
+  }, [transactions, search, category, account, showTransfers]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -719,6 +725,16 @@ export default function Transactions() {
           </select>
         </div>
       </div>
+
+      <label className="mb-4 flex cursor-pointer items-center gap-2 text-xs text-slate-400">
+        <input
+          type="checkbox"
+          checked={showTransfers}
+          onChange={(e) => setShowTransfers(e.target.checked)}
+          className="h-4 w-4 rounded border-surface-500 bg-surface-700 text-accent-500 focus:ring-accent-500"
+        />
+        Show transfers
+      </label>
 
       <div className="md:hidden">
         {filtered.length === 0 ? (

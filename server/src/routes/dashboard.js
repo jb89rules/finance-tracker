@@ -1,9 +1,17 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
+const { EXCLUDED_CATEGORIES } = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+const NON_TRANSFER_CATEGORY = {
+  OR: [
+    { category: null },
+    { category: { notIn: EXCLUDED_CATEGORIES } },
+  ],
+};
 
 function monthRange(offset = 0) {
   const now = new Date();
@@ -35,18 +43,22 @@ router.get('/', async (req, res) => {
         sumAmounts({
           date: { gte: thisMonthStart, lt: thisMonthEnd },
           amount: { gt: 0 },
+          ...NON_TRANSFER_CATEGORY,
         }),
         sumAmounts({
           date: { gte: lastMonthStart, lt: lastMonthEnd },
           amount: { gt: 0 },
+          ...NON_TRANSFER_CATEGORY,
         }),
         sumAmounts({
           date: { gte: thisMonthStart, lt: thisMonthEnd },
           amount: { lt: 0 },
+          ...NON_TRANSFER_CATEGORY,
         }),
         sumAmounts({
           date: { gte: lastMonthStart, lt: lastMonthEnd },
           amount: { lt: 0 },
+          ...NON_TRANSFER_CATEGORY,
         }),
       ]);
 
@@ -87,6 +99,9 @@ router.get('/', async (req, res) => {
 
       budgetsWithSpent = await Promise.all(
         budgets.map(async (b) => {
+          if (EXCLUDED_CATEGORIES.includes(b.category)) {
+            return { ...b, spent: 0 };
+          }
           const billNames = billNamesByBudgetCategory.get(b.category) || [];
           const orClauses = [{ category: b.category }];
           for (const name of billNames) {
@@ -99,7 +114,15 @@ router.get('/', async (req, res) => {
               date: { gte: thisMonthStart, lt: thisMonthEnd },
               amount: { gt: 0 },
               splits: { none: {} },
-              OR: orClauses,
+              AND: [
+                { OR: orClauses },
+                {
+                  OR: [
+                    { category: null },
+                    { category: { notIn: EXCLUDED_CATEGORIES } },
+                  ],
+                },
+              ],
             },
             _sum: { amount: true },
           });
@@ -135,7 +158,7 @@ router.get('/', async (req, res) => {
       where: {
         date: { gte: thisMonthStart, lt: thisMonthEnd },
         amount: { gt: 0 },
-        category: { not: null },
+        category: { not: null, notIn: EXCLUDED_CATEGORIES },
       },
       _sum: { amount: true },
       orderBy: { _sum: { amount: 'desc' } },

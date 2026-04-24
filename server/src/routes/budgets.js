@@ -1,5 +1,6 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { EXCLUDED_CATEGORIES } = require('../lib/excludedCategories');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -46,6 +47,10 @@ router.get('/', async (req, res) => {
 
     const withSpent = await Promise.all(
       budgets.map(async (b) => {
+        if (EXCLUDED_CATEGORIES.includes(b.category)) {
+          return { ...b, spent: 0 };
+        }
+
         const billNames = billNamesByBudgetCategory.get(b.category) || [];
         const orClauses = [{ category: b.category }];
         for (const name of billNames) {
@@ -59,7 +64,15 @@ router.get('/', async (req, res) => {
             date: { gte: startDate, lt: endDate },
             amount: { gt: 0 },
             splits: { none: {} },
-            OR: orClauses,
+            AND: [
+              { OR: orClauses },
+              {
+                OR: [
+                  { category: null },
+                  { category: { notIn: EXCLUDED_CATEGORIES } },
+                ],
+              },
+            ],
           },
           _sum: { amount: true },
         });
