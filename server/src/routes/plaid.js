@@ -48,6 +48,39 @@ router.post('/create-link-token', async (req, res) => {
   }
 });
 
+router.post('/create-link-token-update', async (req, res) => {
+  const { itemId } = req.body || {};
+  if (typeof itemId !== 'string' || !itemId.trim()) {
+    return res.status(400).json({ error: 'itemId is required' });
+  }
+
+  try {
+    const account = await prisma.account.findFirst({
+      where: {
+        itemId,
+        source: 'plaid',
+        accessToken: { not: null },
+      },
+      select: { accessToken: true },
+    });
+    if (!account?.accessToken) {
+      return res.status(404).json({ error: 'No access token found for this item' });
+    }
+
+    const response = await plaid.linkTokenCreate({
+      user: { client_user_id: 'local-user' },
+      client_name: 'Finance App',
+      country_codes: [CountryCode.Us],
+      language: 'en',
+      access_token: account.accessToken,
+    });
+    res.json({ link_token: response.data.link_token });
+  } catch (err) {
+    console.error('[plaid] create-link-token-update', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to create update link token' });
+  }
+});
+
 router.post('/exchange-token', async (req, res) => {
   const { public_token, institution_name, accounts } = req.body || {};
 
@@ -236,6 +269,7 @@ router.get('/balances', async (req, res) => {
         balance: true,
         availableBalance: true,
         accountNumber: true,
+        itemId: true,
       },
       orderBy: [{ institution: 'asc' }, { name: 'asc' }],
     });
