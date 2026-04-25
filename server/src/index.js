@@ -31,6 +31,7 @@ const settingsRouter = require('./routes/settings');
 const categoriesRouter = require('./routes/categories');
 const merchantRulesRouter = require('./routes/merchantRules');
 const categoryRulesRouter = require('./routes/categoryRules');
+const projectionRouter = require('./routes/projection');
 const { authMiddleware } = require('./middleware/auth');
 
 app.get('/health', (req, res) => {
@@ -48,6 +49,7 @@ app.use('/api/settings', authMiddleware, settingsRouter);
 app.use('/api/categories', authMiddleware, categoriesRouter);
 app.use('/api/merchant-rules', authMiddleware, merchantRulesRouter);
 app.use('/api/category-rules', authMiddleware, categoryRulesRouter);
+app.use('/api/projection', authMiddleware, projectionRouter);
 
 app.listen(PORT, HOST, () => {
   console.log(`Server listening on ${HOST}:${PORT}`);

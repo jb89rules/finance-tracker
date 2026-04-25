@@ -6,6 +6,7 @@ const links = [
   { to: '/transactions', label: 'Transactions' },
   { to: '/budgets', label: 'Budgets' },
   { to: '/bills', label: 'Bills' },
+  { to: '/projection', label: 'Projection' },
 ];
 
 export default function Sidebar() {
