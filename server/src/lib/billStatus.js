@@ -119,5 +119,4 @@ module.exports = {
   descriptionMatchesBillName,
   findBillPayment,
   enrichBillsWithPayments,
-  resolveDueDate,
 };

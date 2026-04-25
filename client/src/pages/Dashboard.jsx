@@ -274,15 +274,6 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="mb-6 flex justify-end">
-        <Link
-          to="/projection"
-          className="text-xs font-medium text-accent-400 transition-colors hover:text-accent-500"
-        >
-          View 12-month projection →
-        </Link>
-      </div>
-
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard title="Budgets" viewAll="/budgets">
           {data.budgets.length === 0 ? (
