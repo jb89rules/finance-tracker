@@ -617,6 +617,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
               </label>
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 min="0"
                 value={amount}
@@ -631,6 +632,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
               </label>
               <input
                 type="number"
+                inputMode="numeric"
                 min="1"
                 max="31"
                 value={dueDay}
@@ -647,6 +649,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
             </label>
             <input
               type="number"
+              inputMode="numeric"
               min="1"
               max="14"
               value={paymentWindowDays}

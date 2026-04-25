@@ -297,30 +297,10 @@ If you point `DATABASE_URL` at a fresh production DB (not the Railway one curren
 - **Test coverage limited to pure helpers** — Vitest is wired up in both packages with `npm test` (one-shot) and `npm run test:watch`. Current coverage is unit tests on pure money/aggregation logic in `server/src/lib/` (billStatus, effectiveCategory, excludedCategories, formatCategory, dashboardAggregates) and client `lib/` (formatCategory, excludedCategories) — 65 tests total. No DB-backed integration tests, HTTP endpoint tests, or React component tests yet.
 - **Local `.env` uses password `password`** — explicit throwaway for local dev; production must set a strong value in Railway. The dev server now binds to `127.0.0.1` only (see `HOST` env var) so the weak local password isn't reachable from the LAN, but if you ever set `HOST=0.0.0.0` for cross-device testing, change `APP_PASSWORD` first.
 
-## Local development quick-reference
+## Operational notes
 
-```bash
-# Server
-cd server
-npm install
-# First-time setup for a new DB:
-npx prisma migrate dev
-# Normal dev:
-npm run dev          # nodemon src/index.js
+A few behaviors that aren't bugs but are easy to forget:
 
-# Client (separate terminal)
-cd client
-npm install
-npm run dev          # Vite on 5173
-```
-
-Health check: `curl http://localhost:3001/health` → `{"status":"ok"}`.
-
-Login: `curl -X POST http://localhost:3001/api/auth/login -H "Content-Type: application/json" -d '{"password":"password"}'`.
-
-## Deployment quick-reference
-
-- Client deploys to Vercel on every push to `main`. Root: `client/`. Set `VITE_API_URL` in Vercel env to the Railway server URL.
-- Server deploys to Railway on every push to `main`. Root: `server/`. Start command `npx prisma migrate deploy && node src/index.js`. Env vars: all of the server vars listed above.
 - After adding a new Plaid institution via `exchange-token` on production, run `POST /api/plaid/sync` once to pull transactions. Existing rules apply automatically.
-- After adding a new category rule or merchant rule, existing transactions remain untouched — the rule is only auto-applied to newly synced transactions. To apply retroactively, use `applyToAll: true` on a `PATCH /:id/category` (or `/merchant`) call from the UI, or write a small one-off script.
+- After adding a new category rule or merchant rule, existing transactions remain untouched — the rule only auto-applies to newly synced transactions. To apply retroactively, use `applyToAll: true` on a `PATCH /:id/category` (or `/merchant`) call from the UI, or write a small one-off script.
+- Both Vercel and Railway deploy on every push to `main`. There is no staging environment.

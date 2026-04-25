@@ -210,80 +210,90 @@ function MerchantOverrideModal({ transaction, rules, onClose, onSaved }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-1 text-sm font-semibold text-slate-100">
-          Override merchant name
-        </div>
-        <div className="mb-4 truncate text-xs text-slate-500">
-          Description: {transaction.description}
-        </div>
-
-        <input
-          autoFocus
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
-        />
-
-        {rule && (
-          <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
-            A rule exists for this description:{' '}
-            <span className="text-slate-200">{rule.merchantOverride}</span>
+    <div className="fixed inset-0 z-30 flex bg-black/60 md:items-center md:justify-center md:p-4">
+      <div className="flex h-full w-full flex-col bg-surface-800 md:h-auto md:max-h-[90vh] md:w-full md:max-w-md md:rounded-lg md:border md:border-surface-600/60 md:shadow-xl">
+        <header className="flex items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-slate-100">
+              Override merchant name
+            </div>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              Description: {transaction.description}
+            </div>
           </div>
-        )}
-        {error && (
-          <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => save(false)}
-            disabled={saving}
-            className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            This transaction only
-          </button>
-          <button
-            type="button"
-            onClick={() => save(true)}
-            disabled={saving}
-            className="rounded-md bg-accent-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            All with this description
-          </button>
-        </div>
-
-        <div className="mt-4 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
-          {transaction.merchantOverride ? (
-            <button
-              type="button"
-              onClick={clear}
-              disabled={saving}
-              className="text-xs text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
-            >
-              Clear override
-            </button>
-          ) : (
-            <span />
-          )}
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-surface-700"
+            aria-label="Close"
+            className="shrink-0 rounded p-1 text-2xl leading-none text-slate-500 hover:bg-surface-700 hover:text-slate-200"
           >
-            Cancel
+            ×
           </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <input
+            autoFocus
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+          />
+
+          {rule && (
+            <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
+              A rule exists for this description:{' '}
+              <span className="text-slate-200">{rule.merchantOverride}</span>
+            </div>
+          )}
+          {error && (
+            <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 border-t border-surface-600/60 bg-surface-800 px-5 py-4">
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => save(false)}
+              disabled={saving}
+              className="rounded-md border border-surface-600/60 bg-surface-700 px-4 py-3 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              This transaction only
+            </button>
+            <button
+              type="button"
+              onClick={() => save(true)}
+              disabled={saving}
+              className="rounded-md bg-accent-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              All with this description
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
+            {transaction.merchantOverride ? (
+              <button
+                type="button"
+                onClick={clear}
+                disabled={saving}
+                className="text-sm text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
+              >
+                Clear override
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -350,88 +360,98 @@ function CategoryOverrideModal({ transaction, categories, rules, onClose, onSave
   };
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-1 text-sm font-semibold text-slate-100">
-          Override category
-        </div>
-        <div className="mb-4 truncate text-xs text-slate-500">
-          Description: {transaction.description}
-        </div>
-
-        <select
-          autoFocus
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
-        >
-          <option value="">Select a category</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {formatCategory(c)}
-            </option>
-          ))}
-        </select>
-
-        {rule && (
-          <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
-            A rule exists for this description:{' '}
-            <span className="text-slate-200">
-              {formatCategory(rule.categoryOverride)}
-            </span>
+    <div className="fixed inset-0 z-30 flex bg-black/60 md:items-center md:justify-center md:p-4">
+      <div className="flex h-full w-full flex-col bg-surface-800 md:h-auto md:max-h-[90vh] md:w-full md:max-w-md md:rounded-lg md:border md:border-surface-600/60 md:shadow-xl">
+        <header className="flex items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-slate-100">
+              Override category
+            </div>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              Description: {transaction.description}
+            </div>
           </div>
-        )}
-        {error && (
-          <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => save(false)}
-            disabled={saving}
-            className="rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            This transaction only
-          </button>
-          <button
-            type="button"
-            onClick={() => save(true)}
-            disabled={saving}
-            className="rounded-md bg-accent-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            All with this description
-          </button>
-        </div>
-
-        <div className="mt-4 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
-          {transaction.categoryOverride ? (
-            <button
-              type="button"
-              onClick={clear}
-              disabled={saving}
-              className="text-xs text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
-            >
-              Clear override
-            </button>
-          ) : (
-            <span />
-          )}
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-surface-700"
+            aria-label="Close"
+            className="shrink-0 rounded p-1 text-2xl leading-none text-slate-500 hover:bg-surface-700 hover:text-slate-200"
           >
-            Cancel
+            ×
           </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <select
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+          >
+            <option value="">Select a category</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {formatCategory(c)}
+              </option>
+            ))}
+          </select>
+
+          {rule && (
+            <div className="mt-2 rounded-md border border-surface-600/60 bg-surface-700/40 px-3 py-2 text-xs text-slate-400">
+              A rule exists for this description:{' '}
+              <span className="text-slate-200">
+                {formatCategory(rule.categoryOverride)}
+              </span>
+            </div>
+          )}
+          {error && (
+            <div className="mt-2 rounded-md border border-red-700/50 bg-red-900/40 px-3 py-2 text-xs text-red-200">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 border-t border-surface-600/60 bg-surface-800 px-5 py-4">
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => save(false)}
+              disabled={saving}
+              className="rounded-md border border-surface-600/60 bg-surface-700 px-4 py-3 text-sm font-medium text-slate-200 transition-colors hover:bg-surface-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              This transaction only
+            </button>
+            <button
+              type="button"
+              onClick={() => save(true)}
+              disabled={saving}
+              className="rounded-md bg-accent-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              All with this description
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-surface-600/60 pt-3">
+            {transaction.categoryOverride ? (
+              <button
+                type="button"
+                onClick={clear}
+                disabled={saving}
+                className="text-sm text-red-400 underline-offset-2 hover:text-red-300 hover:underline disabled:opacity-50"
+              >
+                Clear override
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -696,6 +716,7 @@ function SplitEditorModal({ transaction, categories, onClose, onSaved, onRemoved
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     type="number"
+                    inputMode="decimal"
                     step="0.01"
                     min="0"
                     value={split.amount}

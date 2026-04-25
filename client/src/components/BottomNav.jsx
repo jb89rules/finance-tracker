@@ -113,7 +113,7 @@ const links = [
 
 export default function BottomNav() {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 flex h-16 border-t border-surface-600/60 bg-surface-800 md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-20 flex min-h-16 border-t border-surface-600/60 bg-surface-800 pb-[env(safe-area-inset-bottom)] md:hidden">
       {links.map(({ to, label, Icon, end }) => (
         <NavLink
           key={to}

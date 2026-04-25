@@ -27,7 +27,7 @@ function MobileSettingsLink() {
 export default function PageShell({ title, subtitle, action, bare = false, children }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-4 pb-24 pt-6 md:px-8 md:pb-10 md:pt-10">
+      <div className="mx-auto max-w-6xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 md:px-8 md:pb-10 md:pt-10">
         <header className="mb-6 md:mb-8">
           <div className="flex items-start justify-between gap-3 md:gap-4">
             <div className="min-w-0 flex-1">

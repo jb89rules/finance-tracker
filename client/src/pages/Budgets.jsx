@@ -134,6 +134,7 @@ function BudgetCard({ budget, onSaveLimit, onDelete }) {
               <input
                 autoFocus
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 min="0"
                 value={draft}
@@ -239,6 +240,7 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
             </label>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               min="0"
               value={limit}

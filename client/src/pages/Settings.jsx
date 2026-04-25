@@ -122,6 +122,7 @@ function IncomeAndPaySection({ settings, onSave }) {
           </span>
           <input
             type="number"
+            inputMode="decimal"
             step="0.01"
             min="0"
             value={paycheckAmount}
@@ -680,6 +681,7 @@ function DefaultBillSettingsSection({ settings, onSave }) {
         </span>
         <input
           type="number"
+          inputMode="numeric"
           min="1"
           max="14"
           value={window}
