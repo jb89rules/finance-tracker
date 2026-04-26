@@ -5,6 +5,16 @@ const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatu
 const prisma = new PrismaClient();
 const router = express.Router();
 
+const VALID_FREQUENCIES = ['monthly', 'annual', 'semi-annual', 'custom'];
+
+function expandMonthly(amount) {
+  return Array.from({ length: 12 }, () => amount);
+}
+
+function maxAmount(monthlyAmounts) {
+  return monthlyAmounts.reduce((m, a) => (a > m ? a : m), 0);
+}
+
 router.get('/detect', async (req, res) => {
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
@@ -94,14 +104,42 @@ function validateBillInput(body, { partial }) {
     errors.push('name is required');
   }
 
+  let monthlyAmounts = null;
+  if (Array.isArray(body.monthlyAmounts)) {
+    if (body.monthlyAmounts.length !== 12) {
+      errors.push('monthlyAmounts must have exactly 12 entries');
+    } else if (
+      body.monthlyAmounts.some(
+        (a) => typeof a !== 'number' || !Number.isFinite(a) || a < 0
+      )
+    ) {
+      errors.push('monthlyAmounts entries must be non-negative numbers');
+    } else {
+      monthlyAmounts = body.monthlyAmounts.map((a) => Math.round(a * 100) / 100);
+    }
+  }
+
   if (body.amount !== undefined) {
     if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount < 0) {
       errors.push('amount must be a non-negative number');
-    } else {
-      data.amount = body.amount;
+    } else if (monthlyAmounts === null) {
+      monthlyAmounts = expandMonthly(body.amount);
     }
-  } else if (!partial) {
-    errors.push('amount is required');
+  } else if (!partial && monthlyAmounts === null) {
+    errors.push('amount or monthlyAmounts is required');
+  }
+
+  if (monthlyAmounts !== null) {
+    data.monthlyAmounts = monthlyAmounts;
+    data.amount = maxAmount(monthlyAmounts);
+  }
+
+  if (body.frequency !== undefined) {
+    if (!VALID_FREQUENCIES.includes(body.frequency)) {
+      errors.push(`frequency must be one of ${VALID_FREQUENCIES.join(', ')}`);
+    } else {
+      data.frequency = body.frequency;
+    }
   }
 
   if (body.dueDay !== undefined) {
@@ -180,6 +218,8 @@ router.post('/', async (req, res) => {
         matchKeyword: data.matchKeyword ?? null,
         linkedTransactionId: data.linkedTransactionId ?? null,
         amount: data.amount,
+        monthlyAmounts: data.monthlyAmounts,
+        frequency: data.frequency ?? 'monthly',
         dueDay: data.dueDay,
         budgetCategory: data.budgetCategory ?? null,
         paymentWindowDays: data.paymentWindowDays ?? 3,

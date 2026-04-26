@@ -1,6 +1,10 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
-const { computeBillStatus, enrichBillsWithPayments } = require('../lib/billStatus');
+const {
+  computeBillStatus,
+  enrichBillsWithPayments,
+  amountForMonth,
+} = require('../lib/billStatus');
 const { getExcludedDescriptions } = require('../lib/excludedCategories');
 const { loadCategoryRuleMap, effectiveCategoryOf } = require('../lib/effectiveCategory');
 const {
@@ -62,44 +66,62 @@ router.get('/', async (req, res) => {
       },
     });
 
-    const budgets = await prisma.budget.findMany({
-      where: { month, year },
-      orderBy: { category: 'asc' },
-    });
+    const [budgets, bills] = await Promise.all([
+      prisma.budget.findMany({
+        where: { month, year },
+        orderBy: { category: 'asc' },
+      }),
+      prisma.bill.findMany({
+        where: { isActive: true },
+        orderBy: { dueDay: 'asc' },
+      }),
+    ]);
 
-    let budgetsWithSpent = [];
-    if (budgets.length > 0) {
-      const budgetCategories = budgets.map((b) => b.category);
-      const linkedBills = await prisma.bill.findMany({
-        where: {
-          isActive: true,
-          budgetCategory: { in: budgetCategories },
-        },
-        select: { name: true, budgetCategory: true },
-      });
-      const billNamesByBudgetCategory = new Map();
-      for (const bill of linkedBills) {
-        if (!billNamesByBudgetCategory.has(bill.budgetCategory)) {
-          billNamesByBudgetCategory.set(bill.budgetCategory, []);
-        }
-        billNamesByBudgetCategory.get(bill.budgetCategory).push(bill.name);
+    const billsByCategory = new Map();
+    for (const b of bills) {
+      if (!b.budgetCategory) continue;
+      const a = amountForMonth(b, month - 1);
+      if (!a || a <= 0) continue;
+      if (!billsByCategory.has(b.budgetCategory)) {
+        billsByCategory.set(b.budgetCategory, []);
       }
-
-      budgetsWithSpent = budgets.map((b) => ({
-        ...b,
-        spent: computeBudgetSpent(
-          b,
-          thisMonthTxns,
-          billNamesByBudgetCategory.get(b.category) || [],
-          excludedPatterns
-        ),
-      }));
+      billsByCategory.get(b.budgetCategory).push(b);
     }
 
-    const bills = await prisma.bill.findMany({
-      where: { isActive: true },
-      orderBy: { dueDay: 'asc' },
-    });
+    const budgetCategories = new Set([
+      ...budgets.map((b) => b.category),
+      ...billsByCategory.keys(),
+    ]);
+
+    const budgetsWithSpent = [];
+    for (const category of budgetCategories) {
+      const linkedBills = billsByCategory.get(category) || [];
+      const billsTotal = linkedBills.reduce(
+        (s, b) => s + (amountForMonth(b, month - 1) || 0),
+        0
+      );
+      const budget = budgets.find((b) => b.category === category) || null;
+      const discretionary = budget ? budget.discretionary : 0;
+      const total = billsTotal + discretionary;
+      const spent = computeBudgetSpent(
+        { category },
+        thisMonthTxns,
+        linkedBills.map((b) => b.name),
+        excludedPatterns
+      );
+      budgetsWithSpent.push({
+        id: budget ? budget.id : null,
+        category,
+        billsTotal: Math.round(billsTotal * 100) / 100,
+        discretionary,
+        total,
+        limit: total,
+        spent,
+        month,
+        year,
+      });
+    }
+    budgetsWithSpent.sort((a, b) => a.category.localeCompare(b.category));
     const withStatus = bills.map((b) => ({
       ...b,
       ...computeBillStatus(b.dueDay),

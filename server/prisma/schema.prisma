@@ -81,11 +81,12 @@ model TransactionSplit {
 }
 
 model Budget {
-  id       String @id @default(uuid())
-  category String
-  limit    Float
-  month    Int
-  year     Int
+  id            String @id @default(uuid())
+  category      String
+  limit         Float
+  discretionary Float  @default(0)
+  month         Int
+  year          Int
 }
 
 model Bill {
@@ -94,6 +95,8 @@ model Bill {
   matchKeyword        String?
   linkedTransactionId String?
   amount              Float
+  monthlyAmounts      Float[]  @default([])
+  frequency           String   @default("monthly")
   dueDay              Int
   budgetCategory      String?
   paymentWindowDays   Int      @default(3)

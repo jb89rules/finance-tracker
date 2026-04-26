@@ -5,6 +5,7 @@ const {
   getExcludedDescriptions,
 } = require('../lib/excludedCategories');
 const { loadCategoryRuleMap, effectiveCategoryOf } = require('../lib/effectiveCategory');
+const { amountForMonth } = require('../lib/billStatus');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -27,20 +28,20 @@ function descriptionContains(description, needle) {
   return description.toLowerCase().includes(needle.toLowerCase());
 }
 
-function computeSpent(budget, txns, billNames, excludedPatterns) {
-  if (EXCLUDED_CATEGORIES.includes(budget.category)) return 0;
+function computeSpent(category, txns, billNames, excludedPatterns) {
+  if (EXCLUDED_CATEGORIES.includes(category)) return 0;
   let total = 0;
   for (const t of txns) {
     if (descriptionMatchesPatterns(t.description, excludedPatterns)) continue;
     if (t.splits.length > 0) {
       for (const s of t.splits) {
-        if (s.category === budget.category) total += s.amount;
+        if (s.category === category) total += s.amount;
       }
       continue;
     }
     if (t.amount <= 0) continue;
     if (t.effectiveCategory && EXCLUDED_CATEGORIES.includes(t.effectiveCategory)) continue;
-    const categoryMatches = t.effectiveCategory === budget.category;
+    const categoryMatches = t.effectiveCategory === category;
     const descMatches = billNames.some((n) => descriptionContains(t.description, n));
     if (categoryMatches || descMatches) total += t.amount;
   }
@@ -51,19 +52,17 @@ router.get('/', async (req, res) => {
   const { month, year } = parseMonthYear(req);
 
   try {
-    const budgets = await prisma.budget.findMany({
-      where: { month, year },
-      orderBy: { category: 'asc' },
-    });
-
-    if (budgets.length === 0) {
-      return res.json([]);
-    }
-
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 1);
 
-    const [txns, ruleMap, excludedPatterns, linkedBills] = await Promise.all([
+    const [budgets, allBills, txns, ruleMap, excludedPatterns] = await Promise.all([
+      prisma.budget.findMany({
+        where: { month, year },
+        orderBy: { category: 'asc' },
+      }),
+      prisma.bill.findMany({
+        where: { isActive: true, NOT: { budgetCategory: null } },
+      }),
       prisma.transaction.findMany({
         where: { date: { gte: startDate, lt: endDate } },
         include: {
@@ -72,13 +71,6 @@ router.get('/', async (req, res) => {
       }),
       loadCategoryRuleMap(prisma),
       getExcludedDescriptions(prisma),
-      prisma.bill.findMany({
-        where: {
-          isActive: true,
-          budgetCategory: { in: budgets.map((b) => b.category) },
-        },
-        select: { name: true, budgetCategory: true },
-      }),
     ]);
 
     const enriched = txns.map((t) => ({
@@ -86,39 +78,68 @@ router.get('/', async (req, res) => {
       effectiveCategory: effectiveCategoryOf(t, ruleMap),
     }));
 
-    const billNamesByBudgetCategory = new Map();
-    for (const bill of linkedBills) {
-      if (!billNamesByBudgetCategory.has(bill.budgetCategory)) {
-        billNamesByBudgetCategory.set(bill.budgetCategory, []);
-      }
-      billNamesByBudgetCategory.get(bill.budgetCategory).push(bill.name);
+    const billsByCategory = new Map();
+    for (const b of allBills) {
+      const a = amountForMonth(b, month - 1);
+      if (!a || a <= 0) continue;
+      const cat = b.budgetCategory;
+      if (!billsByCategory.has(cat)) billsByCategory.set(cat, []);
+      billsByCategory.get(cat).push(b);
     }
 
-    const withSpent = budgets.map((b) => ({
-      ...b,
-      spent: computeSpent(
-        b,
-        enriched,
-        billNamesByBudgetCategory.get(b.category) || [],
-        excludedPatterns
-      ),
-    }));
+    const categories = new Set([
+      ...budgets.map((b) => b.category),
+      ...billsByCategory.keys(),
+    ]);
 
-    res.json(withSpent);
+    const rows = [];
+    for (const category of categories) {
+      const bills = billsByCategory.get(category) || [];
+      const billsTotal = bills.reduce(
+        (s, b) => s + (amountForMonth(b, month - 1) || 0),
+        0
+      );
+      const billNames = bills.map((b) => b.name);
+      const budget = budgets.find((b) => b.category === category) || null;
+      const discretionary = budget ? budget.discretionary : 0;
+      const total = billsTotal + discretionary;
+      const spent = computeSpent(category, enriched, billNames, excludedPatterns);
+      rows.push({
+        id: budget ? budget.id : null,
+        category,
+        billsTotal: Math.round(billsTotal * 100) / 100,
+        discretionary,
+        total,
+        limit: total,
+        spent,
+        month,
+        year,
+      });
+    }
+
+    rows.sort((a, b) => a.category.localeCompare(b.category));
+    res.json(rows);
   } catch (err) {
     console.error('[budgets] list', err.message);
     res.status(500).json({ error: 'Failed to fetch budgets' });
   }
 });
 
+function pickDiscretionary(body) {
+  if (typeof body.discretionary === 'number') return body.discretionary;
+  if (typeof body.limit === 'number') return body.limit;
+  return null;
+}
+
 router.post('/', async (req, res) => {
-  const { category, limit, month, year } = req.body || {};
+  const { category, month, year } = req.body || {};
+  const discretionary = pickDiscretionary(req.body || {});
 
   if (typeof category !== 'string' || !category.trim()) {
     return res.status(400).json({ error: 'category must be a non-empty string' });
   }
-  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) {
-    return res.status(400).json({ error: 'limit must be a positive number' });
+  if (discretionary === null || !Number.isFinite(discretionary) || discretionary < 0) {
+    return res.status(400).json({ error: 'discretionary (or limit) must be a non-negative number' });
   }
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     return res.status(400).json({ error: 'month must be an integer 1-12' });
@@ -129,7 +150,13 @@ router.post('/', async (req, res) => {
 
   try {
     const created = await prisma.budget.create({
-      data: { category: category.trim(), limit, month, year },
+      data: {
+        category: category.trim(),
+        discretionary,
+        limit: discretionary,
+        month,
+        year,
+      },
     });
     res.status(201).json(created);
   } catch (err) {
@@ -140,16 +167,16 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
-  const { limit } = req.body || {};
+  const discretionary = pickDiscretionary(req.body || {});
 
-  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) {
-    return res.status(400).json({ error: 'limit must be a positive number' });
+  if (discretionary === null || !Number.isFinite(discretionary) || discretionary < 0) {
+    return res.status(400).json({ error: 'discretionary (or limit) must be a non-negative number' });
   }
 
   try {
     const updated = await prisma.budget.update({
       where: { id },
-      data: { limit },
+      data: { discretionary, limit: discretionary },
     });
     res.json(updated);
   } catch (err) {

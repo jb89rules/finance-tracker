@@ -63,6 +63,13 @@ function descriptionMatchesBillName(description, billName) {
   return nameTokens.every((t) => descTokens.has(t));
 }
 
+function amountForMonth(bill, month0) {
+  if (Array.isArray(bill.monthlyAmounts) && bill.monthlyAmounts.length === 12) {
+    return bill.monthlyAmounts[month0];
+  }
+  return bill.amount;
+}
+
 async function findBillPayment(prisma, bill) {
   if (bill.linkedTransactionId) {
     const linked = await prisma.transaction.findUnique({
@@ -72,6 +79,9 @@ async function findBillPayment(prisma, bill) {
   }
 
   const mostRecentDue = computeMostRecentDue(bill.dueDay);
+  const monthAmount = amountForMonth(bill, mostRecentDue.getMonth());
+  if (!monthAmount || monthAmount <= 0) return null;
+
   const windowStart = new Date(mostRecentDue);
   windowStart.setDate(windowStart.getDate() - bill.paymentWindowDays);
   windowStart.setHours(0, 0, 0, 0);
@@ -79,8 +89,8 @@ async function findBillPayment(prisma, bill) {
   windowEnd.setDate(windowEnd.getDate() + bill.paymentWindowDays + 1);
   windowEnd.setHours(0, 0, 0, 0);
 
-  const amountLow = bill.amount * 0.9;
-  const amountHigh = bill.amount * 1.1;
+  const amountLow = monthAmount * 0.9;
+  const amountHigh = monthAmount * 1.1;
 
   const candidates = await prisma.transaction.findMany({
     where: {
@@ -95,6 +105,17 @@ async function findBillPayment(prisma, bill) {
     candidates.find((t) => descriptionMatchesBillName(t.description, needle)) ||
     null
   );
+}
+
+function billsTotalForCategoryMonth(bills, category, month) {
+  if (!category) return 0;
+  let total = 0;
+  for (const b of bills) {
+    if (!b.isActive) continue;
+    if (b.budgetCategory !== category) continue;
+    total += amountForMonth(b, month - 1) || 0;
+  }
+  return total;
 }
 
 async function enrichBillsWithPayments(prisma, bills) {
@@ -119,4 +140,7 @@ module.exports = {
   descriptionMatchesBillName,
   findBillPayment,
   enrichBillsWithPayments,
+  resolveDueDate,
+  amountForMonth,
+  billsTotalForCategoryMonth,
 };

@@ -69,25 +69,28 @@ function TrashIcon() {
   );
 }
 
-function BudgetCard({ budget, onSaveLimit, onDelete }) {
+function BudgetCard({ budget, onSaveBuffer, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(budget.limit));
+  const [draft, setDraft] = useState(String(budget.discretionary ?? 0));
 
   useEffect(() => {
-    setDraft(String(budget.limit));
-  }, [budget.limit]);
+    setDraft(String(budget.discretionary ?? 0));
+  }, [budget.discretionary]);
 
-  const pct = budget.limit > 0 ? (budget.spent / budget.limit) * 100 : 0;
-  const remaining = budget.limit - budget.spent;
+  const total = budget.total ?? budget.limit ?? 0;
+  const pct = total > 0 ? (budget.spent / total) * 100 : 0;
+  const remaining = total - budget.spent;
   const over = remaining < 0;
+  const billsTotal = budget.billsTotal ?? 0;
+  const discretionary = budget.discretionary ?? 0;
 
   const barColor =
     pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500';
 
   const commit = async () => {
     const n = Number.parseFloat(draft);
-    if (Number.isFinite(n) && n > 0 && n !== budget.limit) {
-      await onSaveLimit(n);
+    if (Number.isFinite(n) && n >= 0 && n !== discretionary) {
+      await onSaveBuffer(n);
     }
     setEditing(false);
   };
@@ -100,28 +103,35 @@ function BudgetCard({ budget, onSaveLimit, onDelete }) {
           <button
             type="button"
             onClick={() => setEditing(true)}
-            title="Edit limit"
+            title="Edit buffer"
             className="rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-slate-200"
           >
             <PencilIcon />
           </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            title="Delete budget"
-            className="rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-red-400"
-          >
-            <TrashIcon />
-          </button>
+          {budget.id && (
+            <button
+              type="button"
+              onClick={onDelete}
+              title="Reset buffer to 0"
+              className="rounded p-1 text-slate-500 transition-colors hover:bg-surface-700 hover:text-red-400"
+            >
+              <TrashIcon />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="mb-3 flex items-baseline justify-between gap-2">
+      <div className="mb-3">
         <div className="text-sm text-slate-400">
-          <span className="text-slate-100">
-            {currencyFormatter.format(budget.spent)}
-          </span>
+          <span className="text-slate-100">{currencyFormatter.format(budget.spent)}</span>
           <span className="text-slate-500"> of </span>
+          <span className="text-slate-200">{currencyFormatter.format(total)}</span>
+        </div>
+        <div className="mt-1 flex items-baseline gap-2 text-xs text-slate-500">
+          <span>
+            {currencyFormatter.format(billsTotal)} <span className="text-slate-600">(bills)</span>
+          </span>
+          <span className="text-slate-600">+</span>
           {editing ? (
             <form
               onSubmit={(e) => {
@@ -140,12 +150,14 @@ function BudgetCard({ budget, onSaveLimit, onDelete }) {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={commit}
-                className="w-24 rounded bg-surface-700 px-2 py-0.5 text-sm text-slate-100 outline-none ring-1 ring-surface-600 focus:ring-accent-500"
+                className="w-20 rounded bg-surface-700 px-2 py-0.5 text-xs text-slate-100 outline-none ring-1 ring-surface-600 focus:ring-accent-500"
               />
+              <span className="text-slate-600">(buffer)</span>
             </form>
           ) : (
-            <span className="text-slate-200">
-              {currencyFormatter.format(budget.limit)}
+            <span>
+              {currencyFormatter.format(discretionary)}{' '}
+              <span className="text-slate-600">(buffer)</span>
             </span>
           )}
         </div>
@@ -170,9 +182,9 @@ function BudgetCard({ budget, onSaveLimit, onDelete }) {
   );
 }
 
-function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
+function AddBudgetModal({ categories, existingCategories, billsByCategory, month, year, onSubmit, onClose }) {
   const [category, setCategory] = useState('');
-  const [limit, setLimit] = useState('');
+  const [buffer, setBuffer] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -184,21 +196,33 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  const billsForSelected = category ? billsByCategory.get(category) || 0 : 0;
+  const bufferNum = Number.parseFloat(buffer) || 0;
+  const previewTotal = billsForSelected + bufferNum;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const n = Number.parseFloat(limit);
     if (!category.trim()) return setError('Category is required');
-    if (!Number.isFinite(n) || n <= 0) return setError('Limit must be greater than 0');
+    if (!Number.isFinite(bufferNum) || bufferNum < 0) {
+      return setError('Buffer must be 0 or greater');
+    }
 
     setSaving(true);
     setError(null);
     try {
-      await onSubmit({ category: category.trim(), limit: n, month, year });
+      await onSubmit({
+        category: category.trim(),
+        discretionary: bufferNum,
+        month,
+        year,
+      });
     } catch (err) {
       setError('Failed to save budget');
       setSaving(false);
     }
   };
+
+  const availableCategories = categories.filter((c) => !existingCategories.has(c));
 
   return (
     <div
@@ -210,9 +234,7 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 text-lg font-semibold text-slate-100">Add Budget</div>
-        <div className="mb-5 text-sm text-slate-500">
-          For {monthLabel(month, year)}
-        </div>
+        <div className="mb-5 text-sm text-slate-500">For {monthLabel(month, year)}</div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -226,7 +248,7 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
               className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
             >
               <option value="">Select a category</option>
-              {categories.map((c) => (
+              {availableCategories.map((c) => (
                 <option key={c} value={c}>
                   {formatCategory(c)}
                 </option>
@@ -236,18 +258,25 @@ function AddBudgetModal({ categories, month, year, onSubmit, onClose }) {
 
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-              Monthly limit
+              Discretionary buffer
             </label>
             <input
               type="number"
               inputMode="decimal"
               step="0.01"
               min="0"
-              value={limit}
-              onChange={(e) => setLimit(e.target.value)}
-              placeholder="500.00"
+              value={buffer}
+              onChange={(e) => setBuffer(e.target.value)}
+              placeholder="0.00"
               className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
             />
+            {category && (
+              <p className="mt-1 text-xs text-slate-500">
+                {currencyFormatter.format(billsForSelected)} bills +{' '}
+                {currencyFormatter.format(bufferNum)} buffer ={' '}
+                <span className="text-slate-300">{currencyFormatter.format(previewTotal)}</span> total
+              </p>
+            )}
           </div>
 
           {error && (
@@ -332,10 +361,19 @@ export default function Budgets() {
     await loadBudgets();
   };
 
-  const handleSaveLimit = async (id, limit) => {
+  const handleSaveBuffer = async (budget, discretionary) => {
     try {
-      await api.patch(`/api/budgets/${id}`, { limit });
-      setBudgets((prev) => prev.map((b) => (b.id === id ? { ...b, limit } : b)));
+      if (budget.id) {
+        await api.patch(`/api/budgets/${budget.id}`, { discretionary });
+      } else {
+        await api.post('/api/budgets', {
+          category: budget.category,
+          discretionary,
+          month: date.month,
+          year: date.year,
+        });
+      }
+      await loadBudgets();
     } catch (e) {
       setError('Failed to update budget');
     }
@@ -344,11 +382,24 @@ export default function Budgets() {
   const handleDelete = async (id) => {
     try {
       await api.delete(`/api/budgets/${id}`);
-      setBudgets((prev) => prev.filter((b) => b.id !== id));
+      await loadBudgets();
     } catch (e) {
       setError('Failed to delete budget');
     }
   };
+
+  const existingCategories = useMemo(
+    () => new Set(budgets.map((b) => b.category)),
+    [budgets]
+  );
+
+  const billsByCategory = useMemo(() => {
+    const map = new Map();
+    for (const b of budgets) {
+      if (b.billsTotal) map.set(b.category, b.billsTotal);
+    }
+    return map;
+  }, [budgets]);
 
   const addButton = (
     <button
@@ -405,9 +456,9 @@ export default function Budgets() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {budgets.map((b) => (
             <BudgetCard
-              key={b.id}
+              key={b.id ?? `derived:${b.category}`}
               budget={b}
-              onSaveLimit={(limit) => handleSaveLimit(b.id, limit)}
+              onSaveBuffer={(discretionary) => handleSaveBuffer(b, discretionary)}
               onDelete={() => handleDelete(b.id)}
             />
           ))}
@@ -417,6 +468,8 @@ export default function Budgets() {
       {modalOpen && (
         <AddBudgetModal
           categories={categories}
+          existingCategories={existingCategories}
+          billsByCategory={billsByCategory}
           month={date.month}
           year={date.year}
           onSubmit={handleCreate}

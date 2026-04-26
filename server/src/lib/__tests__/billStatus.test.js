@@ -3,6 +3,8 @@ import {
   computeBillStatus,
   computeMostRecentDue,
   descriptionMatchesBillName,
+  amountForMonth,
+  billsTotalForCategoryMonth,
 } from '../billStatus.js';
 
 describe('computeBillStatus', () => {
@@ -107,5 +109,81 @@ describe('descriptionMatchesBillName', () => {
     expect(descriptionMatchesBillName('', 'Netflix')).toBe(false);
     expect(descriptionMatchesBillName('NETFLIX', '')).toBe(false);
     expect(descriptionMatchesBillName(null, null)).toBe(false);
+  });
+});
+
+describe('amountForMonth', () => {
+  it('returns the per-month entry when monthlyAmounts is populated', () => {
+    const bill = { monthlyAmounts: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120], amount: 0 };
+    expect(amountForMonth(bill, 0)).toBe(10);
+    expect(amountForMonth(bill, 5)).toBe(60);
+    expect(amountForMonth(bill, 11)).toBe(120);
+  });
+
+  it('falls back to legacy flat amount when monthlyAmounts is missing or wrong length', () => {
+    expect(amountForMonth({ monthlyAmounts: [], amount: 50 }, 3)).toBe(50);
+    expect(amountForMonth({ monthlyAmounts: null, amount: 75 }, 0)).toBe(75);
+    expect(amountForMonth({ amount: 99 }, 8)).toBe(99);
+  });
+
+  it('returns 0 for annual-bill non-due months', () => {
+    const months = [0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const bill = { monthlyAmounts: months, amount: 99 };
+    expect(amountForMonth(bill, 2)).toBe(99);
+    expect(amountForMonth(bill, 0)).toBe(0);
+    expect(amountForMonth(bill, 11)).toBe(0);
+  });
+});
+
+describe('billsTotalForCategoryMonth', () => {
+  const bills = [
+    {
+      isActive: true,
+      budgetCategory: 'Housing',
+      monthlyAmounts: Array(12).fill(1500),
+      amount: 1500,
+    },
+    {
+      isActive: true,
+      budgetCategory: 'Housing',
+      monthlyAmounts: Array(12).fill(200),
+      amount: 200,
+    },
+    {
+      isActive: true,
+      budgetCategory: 'Entertainment',
+      monthlyAmounts: [0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      amount: 99,
+    },
+    {
+      isActive: false,
+      budgetCategory: 'Housing',
+      monthlyAmounts: Array(12).fill(99999),
+      amount: 99999,
+    },
+    {
+      isActive: true,
+      budgetCategory: null,
+      monthlyAmounts: Array(12).fill(50),
+      amount: 50,
+    },
+  ];
+
+  it('sums per-month amounts for matching active bills', () => {
+    expect(billsTotalForCategoryMonth(bills, 'Housing', 5)).toBe(1700);
+  });
+
+  it('honors per-month variability (annual bill in due month vs other months)', () => {
+    expect(billsTotalForCategoryMonth(bills, 'Entertainment', 3)).toBe(99);
+    expect(billsTotalForCategoryMonth(bills, 'Entertainment', 5)).toBe(0);
+  });
+
+  it('skips inactive bills and bills with no budgetCategory', () => {
+    expect(billsTotalForCategoryMonth(bills, 'Housing', 1)).toBe(1700);
+  });
+
+  it('returns 0 for unknown category or missing category', () => {
+    expect(billsTotalForCategoryMonth(bills, 'Pets', 5)).toBe(0);
+    expect(billsTotalForCategoryMonth(bills, null, 5)).toBe(0);
   });
 });

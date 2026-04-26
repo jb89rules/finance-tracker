@@ -38,6 +38,38 @@ function formatShortDate(iso) {
   });
 }
 
+const SHORT_MONTH_LABELS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+function frequencyBadgeText(bill) {
+  const freq = bill.frequency || 'monthly';
+  if (freq === 'monthly') return null;
+  const amounts = bill.monthlyAmounts;
+  const activeMonths = Array.isArray(amounts)
+    ? amounts.map((a, i) => (a > 0 ? i : -1)).filter((i) => i >= 0)
+    : [];
+  if (freq === 'annual' && activeMonths.length > 0) {
+    return `Annual · ${SHORT_MONTH_LABELS[activeMonths[0]]}`;
+  }
+  if (freq === 'semi-annual' && activeMonths.length > 0) {
+    return `Semi-annual · ${activeMonths.map((i) => SHORT_MONTH_LABELS[i]).join(' & ')}`;
+  }
+  if (freq === 'custom') return 'Custom';
+  return freq;
+}
+
+function FrequencyBadge({ bill }) {
+  const text = frequencyBadgeText(bill);
+  if (!text) return null;
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded bg-surface-600/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+      {text}
+    </span>
+  );
+}
+
 function PencilIcon() {
   return (
     <svg
@@ -371,6 +403,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`} />
             <div className="truncate font-medium text-slate-100">{bill.name}</div>
+            <FrequencyBadge bill={bill} />
           </div>
           <div className="shrink-0 text-sm font-medium tabular-nums text-slate-100">
             {currencyFormatter.format(bill.amount)}
@@ -425,6 +458,7 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${style.dot}`} />
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="min-w-0 truncate font-medium text-slate-100">{bill.name}</div>
+          <FrequencyBadge bill={bill} />
           {bill.budgetCategory && (
             <span className="shrink-0 whitespace-nowrap text-xs text-slate-500">
               → {formatCategory(bill.budgetCategory)}
@@ -475,10 +509,79 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
   );
 }
 
+const MONTH_LABELS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+function inferFrequencyFromAmounts(amounts) {
+  if (!Array.isArray(amounts) || amounts.length !== 12) return 'monthly';
+  const nonZeroIdxs = amounts
+    .map((a, i) => (a > 0 ? i : -1))
+    .filter((i) => i >= 0);
+  if (nonZeroIdxs.length === 12) {
+    const first = amounts[0];
+    if (amounts.every((a) => a === first)) return 'monthly';
+    return 'custom';
+  }
+  if (nonZeroIdxs.length === 1) return 'annual';
+  if (nonZeroIdxs.length === 2 && amounts[nonZeroIdxs[0]] === amounts[nonZeroIdxs[1]]) {
+    return 'semi-annual';
+  }
+  return 'custom';
+}
+
+function buildMonthlyAmounts(frequency, amount, anchorMonths, customAmounts) {
+  if (frequency === 'monthly') {
+    return Array.from({ length: 12 }, () => amount);
+  }
+  if (frequency === 'annual' || frequency === 'semi-annual') {
+    const result = Array.from({ length: 12 }, () => 0);
+    for (const m of anchorMonths) {
+      if (m >= 0 && m < 12) result[m] = amount;
+    }
+    return result;
+  }
+  return customAmounts.map((a) => Number.parseFloat(a) || 0);
+}
+
 function BillFormModal({ initial, categories, onSubmit, onClose }) {
+  const initialAmounts =
+    Array.isArray(initial?.monthlyAmounts) && initial.monthlyAmounts.length === 12
+      ? initial.monthlyAmounts
+      : Array.from({ length: 12 }, () => initial?.amount ?? 0);
+  const initialFrequency =
+    initial?.frequency || inferFrequencyFromAmounts(initialAmounts);
+  const initialNonZeroIdxs = initialAmounts
+    .map((a, i) => (a > 0 ? i : -1))
+    .filter((i) => i >= 0);
+  const initialAnchorAmount =
+    initialNonZeroIdxs.length > 0 ? initialAmounts[initialNonZeroIdxs[0]] : 0;
+
   const [name, setName] = useState(initial?.name ?? '');
+  const [frequency, setFrequency] = useState(initialFrequency);
   const [amount, setAmount] = useState(
-    initial?.amount !== undefined ? String(initial.amount) : ''
+    initialFrequency === 'custom'
+      ? ''
+      : String(initialFrequency === 'monthly' ? initialAmounts[0] || '' : initialAnchorAmount || '')
+  );
+  const [annualMonth, setAnnualMonth] = useState(
+    initialFrequency === 'annual' && initialNonZeroIdxs.length > 0
+      ? initialNonZeroIdxs[0]
+      : 0
+  );
+  const [semiMonth1, setSemiMonth1] = useState(
+    initialFrequency === 'semi-annual' && initialNonZeroIdxs.length >= 1
+      ? initialNonZeroIdxs[0]
+      : 0
+  );
+  const [semiMonth2, setSemiMonth2] = useState(
+    initialFrequency === 'semi-annual' && initialNonZeroIdxs.length >= 2
+      ? initialNonZeroIdxs[1]
+      : 6
+  );
+  const [customAmounts, setCustomAmounts] = useState(() =>
+    initialAmounts.map((a) => String(a || ''))
   );
   const [dueDay, setDueDay] = useState(
     initial?.dueDay !== undefined ? String(initial.dueDay) : ''
@@ -535,14 +638,10 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const amountNum = Number.parseFloat(amount);
     const dayNum = Number.parseInt(dueDay, 10);
     const windowNum = Number.parseInt(paymentWindowDays, 10);
 
     if (!name.trim()) return setError('Name is required');
-    if (!Number.isFinite(amountNum) || amountNum < 0) {
-      return setError('Amount must be 0 or greater');
-    }
     if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > 31) {
       return setError('Due day must be 1-31');
     }
@@ -550,13 +649,45 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
       return setError('Payment window must be 1-14 days');
     }
 
+    let amountNum = 0;
+    let anchorMonths = [];
+    if (frequency === 'monthly' || frequency === 'annual') {
+      amountNum = Number.parseFloat(amount);
+      if (!Number.isFinite(amountNum) || amountNum < 0) {
+        return setError('Amount must be 0 or greater');
+      }
+      if (frequency === 'annual') anchorMonths = [annualMonth];
+    } else if (frequency === 'semi-annual') {
+      amountNum = Number.parseFloat(amount);
+      if (!Number.isFinite(amountNum) || amountNum < 0) {
+        return setError('Amount must be 0 or greater');
+      }
+      if (semiMonth1 === semiMonth2) {
+        return setError('Semi-annual must use two different months');
+      }
+      anchorMonths = [semiMonth1, semiMonth2];
+    } else if (frequency === 'custom') {
+      const parsed = customAmounts.map((a) => Number.parseFloat(a));
+      if (parsed.some((a) => !Number.isFinite(a) || a < 0)) {
+        return setError('Custom amounts must each be 0 or greater');
+      }
+    }
+
+    const monthlyAmounts = buildMonthlyAmounts(
+      frequency,
+      amountNum,
+      anchorMonths,
+      customAmounts
+    );
+
     setSaving(true);
     setError(null);
     try {
       await onSubmit({
         name: name.trim(),
         matchKeyword: matchKeyword.trim() || null,
-        amount: amountNum,
+        frequency,
+        monthlyAmounts,
         dueDay: dayNum,
         budgetCategory: budgetCategory.trim() || null,
         paymentWindowDays: windowNum,
@@ -610,38 +741,220 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                Amount
-              </label>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="15.99"
-                className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
-                Due day
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="1"
-                max="31"
-                value={dueDay}
-                onChange={(e) => setDueDay(e.target.value)}
-                placeholder="15"
-                className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
-              />
-            </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+              Frequency
+            </label>
+            <select
+              value={frequency}
+              onChange={(e) => setFrequency(e.target.value)}
+              className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="annual">Annual</option>
+              <option value="semi-annual">Semi-annual</option>
+              <option value="custom">Custom (per month)</option>
+            </select>
           </div>
+
+          {frequency === 'monthly' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="15.99"
+                  className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Due day
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="31"
+                  value={dueDay}
+                  onChange={(e) => setDueDay(e.target.value)}
+                  placeholder="15"
+                  className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                />
+              </div>
+            </div>
+          )}
+
+          {frequency === 'annual' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="99.00"
+                  className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Month
+                </label>
+                <select
+                  value={annualMonth}
+                  onChange={(e) => setAnnualMonth(Number.parseInt(e.target.value, 10))}
+                  className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+                >
+                  {MONTH_LABELS.map((m, i) => (
+                    <option key={m} value={i}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Due day
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="31"
+                  value={dueDay}
+                  onChange={(e) => setDueDay(e.target.value)}
+                  placeholder="15"
+                  className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                />
+              </div>
+            </div>
+          )}
+
+          {frequency === 'semi-annual' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Amount (each)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="500.00"
+                    className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Due day
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="31"
+                    value={dueDay}
+                    onChange={(e) => setDueDay(e.target.value)}
+                    placeholder="15"
+                    className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    First month
+                  </label>
+                  <select
+                    value={semiMonth1}
+                    onChange={(e) => setSemiMonth1(Number.parseInt(e.target.value, 10))}
+                    className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+                  >
+                    {MONTH_LABELS.map((m, i) => (
+                      <option key={m} value={i}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                    Second month
+                  </label>
+                  <select
+                    value={semiMonth2}
+                    onChange={(e) => setSemiMonth2(Number.parseInt(e.target.value, 10))}
+                    className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
+                  >
+                    {MONTH_LABELS.map((m, i) => (
+                      <option key={m} value={i}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {frequency === 'custom' && (
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Per-month amounts
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {MONTH_LABELS.map((m, i) => (
+                    <div key={m}>
+                      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                        {m}
+                      </div>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        value={customAmounts[i]}
+                        onChange={(e) => {
+                          const next = [...customAmounts];
+                          next[i] = e.target.value;
+                          setCustomAmounts(next);
+                        }}
+                        placeholder="0"
+                        className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-2 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
+                  Due day (within active months)
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="31"
+                  value={dueDay}
+                  onChange={(e) => setDueDay(e.target.value)}
+                  placeholder="15"
+                  className="w-24 rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-accent-500"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
