@@ -12,6 +12,8 @@ const {
   formatDueLabel,
   hasDate,
   categoryRollup,
+  resolveDueDate,
+  descriptionMatchesItemName,
 } = require('../lib/itemStatus');
 const { validatePlannedItemInput } = require('../lib/plannedItemValidation');
 
@@ -130,6 +132,123 @@ router.get('/detect', async (req, res) => {
   } catch (err) {
     console.error('[plan] detect', err.message);
     res.status(500).json({ error: 'Failed to detect items' });
+  }
+});
+
+// Find the transaction (if any) that matches a dated item *for a specific
+// month/year* — unlike the today-relative findItemPayment, this scopes the
+// window to the requested period so historical drill-ins return the right
+// payment.
+async function findDatedItemPaymentInMonth(prisma, item, month0, year) {
+  if (item.linkedTransactionId) {
+    // The manual link is global — only count it if it falls in the window
+    // we care about (otherwise the "April" view would show a March payment).
+    const linked = await prisma.transaction.findUnique({
+      where: { id: item.linkedTransactionId },
+    });
+    if (!linked) return null;
+    const d = new Date(linked.date);
+    if (d.getMonth() === month0 && d.getFullYear() === year) return linked;
+    return null;
+  }
+
+  let targetDue;
+  if (item.kind === 'one_time') {
+    if (!item.oneTimeDate) return null;
+    const d = new Date(item.oneTimeDate);
+    if (d.getMonth() !== month0 || d.getFullYear() !== year) return null;
+    targetDue = d;
+  } else if (item.dueDay !== null && item.dueDay !== undefined) {
+    targetDue = resolveDueDate(year, month0, item.dueDay);
+  } else {
+    return null;
+  }
+
+  const monthAmount = amountForMonth(item, month0, year);
+  if (!monthAmount || monthAmount <= 0) return null;
+
+  const windowStart = new Date(targetDue);
+  windowStart.setDate(windowStart.getDate() - item.paymentWindowDays);
+  windowStart.setHours(0, 0, 0, 0);
+  const windowEnd = new Date(targetDue);
+  windowEnd.setDate(windowEnd.getDate() + item.paymentWindowDays + 1);
+  windowEnd.setHours(0, 0, 0, 0);
+
+  const candidates = await prisma.transaction.findMany({
+    where: {
+      date: { gte: windowStart, lt: windowEnd },
+      amount: { gte: monthAmount * 0.9, lte: monthAmount * 1.1 },
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  const needle = item.matchKeyword || item.name;
+  return candidates.find((t) => descriptionMatchesItemName(t.description, needle)) || null;
+}
+
+// GET /api/plan/items/:id/transactions — returns the transactions that "count
+// toward" this item for the requested month. For dated items this is the
+// matched payment (if any). For spread items this is every category-matching
+// transaction in the month minus those owned by dated siblings.
+router.get('/items/:id/transactions', async (req, res) => {
+  const { id } = req.params;
+  const { month, year } = parseMonthYear(req);
+  const month0 = month - 1;
+
+  try {
+    const item = await prisma.plannedItem.findUnique({ where: { id } });
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    if (hasDate(item)) {
+      const match = await findDatedItemPaymentInMonth(prisma, item, month0, year);
+      return res.json(match ? [match] : []);
+    }
+
+    // Spread item — collect every transaction in the month that hits this
+    // category and is not already owned by a dated sibling.
+    const start = new Date(year, month0, 1);
+    const end = new Date(year, month0 + 1, 1);
+
+    const [txns, ruleMap, excluded, siblings] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { date: { gte: start, lt: end } },
+        include: {
+          splits: { select: { id: true, amount: true, category: true } },
+          account: { select: { id: true, institution: true, name: true } },
+        },
+      }),
+      loadCategoryRuleMap(prisma),
+      getExcludedDescriptions(prisma),
+      prisma.plannedItem.findMany({
+        where: { isActive: true, category: item.category, NOT: { id: item.id } },
+      }),
+    ]);
+
+    const enrichedTxns = txns.map((t) => ({
+      ...t,
+      effectiveCategory: effectiveCategoryOf(t, ruleMap),
+    }));
+
+    const datedSiblings = siblings.filter(hasDate);
+    const ownedTxnIds = new Set();
+    for (const sib of datedSiblings) {
+      const m = await findDatedItemPaymentInMonth(prisma, sib, month0, year);
+      if (m) ownedTxnIds.add(m.id);
+    }
+
+    const result = enrichedTxns.filter((t) => {
+      if (ownedTxnIds.has(t.id)) return false;
+      if (descriptionMatchesPatterns(t.description, excluded)) return false;
+      if (t.amount <= 0) return false;
+      if (t.effectiveCategory && EXCLUDED_CATEGORIES.includes(t.effectiveCategory)) return false;
+      return t.effectiveCategory === item.category;
+    });
+
+    result.sort((a, b) => new Date(b.date) - new Date(a.date));
+    res.json(result);
+  } catch (err) {
+    console.error('[plan] item transactions', err.message);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 });
 

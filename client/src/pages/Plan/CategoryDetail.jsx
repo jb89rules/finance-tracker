@@ -164,7 +164,8 @@ export default function CategoryDetail() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-surface-600/60 bg-surface-800">
-          <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_auto] gap-3 border-b border-surface-600/60 px-4 py-2 text-xs uppercase tracking-wide text-slate-500 md:grid">
+          <div className="hidden grid-cols-[auto_2fr_1fr_1fr_1fr_auto] gap-3 border-b border-surface-600/60 px-4 py-2 text-xs uppercase tracking-wide text-slate-500 md:grid">
+            <div className="w-[14px]" />
             <div>Name</div>
             <div>Timing</div>
             <div>Status</div>
@@ -175,6 +176,8 @@ export default function CategoryDetail() {
             <PlanItemRow
               key={it.id}
               item={it}
+              month={date.month}
+              year={date.year}
               onItemUpdated={handleRowUpdated}
               onEdit={() => setFormState({ mode: 'edit', item: it })}
               onDelete={() => handleDelete(it.id)}
