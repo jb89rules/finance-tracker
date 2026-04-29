@@ -1,28 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
-
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
-
-function ordinal(n) {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
-function dueText(bill) {
-  if (bill.status === 'overdue') {
-    const n = bill.daysOverdue ?? 0;
-    return `${n} day${n === 1 ? '' : 's'} overdue`;
-  }
-  if (bill.daysUntilDue === 0) return 'due today';
-  if (bill.daysUntilDue === 1) return 'in 1 day';
-  return `in ${bill.daysUntilDue} days`;
-}
+import Modal from '../components/Modal.jsx';
+import CategoryCombobox from '../components/CategoryCombobox.jsx';
+import {
+  currencyFormatter,
+  formatShortDate,
+  ordinal,
+  dueText,
+  SHORT_MONTH_LABELS,
+} from '../lib/format.js';
 
 const STATUS_STYLES = {
   upcoming: { dot: 'bg-emerald-500', text: 'text-emerald-400' },
@@ -30,18 +18,6 @@ const STATUS_STYLES = {
   overdue: { dot: 'bg-red-500', text: 'text-red-400' },
   paid: { dot: 'bg-emerald-500', text: 'text-emerald-400' },
 };
-
-function formatShortDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-const SHORT_MONTH_LABELS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
 
 function frequencyBadgeText(bill) {
   const freq = bill.frequency || 'monthly';
@@ -107,104 +83,6 @@ function TrashIcon() {
   );
 }
 
-function CategoryCombobox({ value, options, onChange, placeholder }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setOpen(false);
-        setQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const allOptions =
-    value && !options.includes(value) ? [value, ...options] : options;
-  const filtered = query
-    ? allOptions.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
-    : allOptions;
-
-  const select = (next) => {
-    onChange(next);
-    setOpen(false);
-    setQuery('');
-  };
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-left text-sm outline-none focus:ring-2 focus:ring-accent-500"
-      >
-        <span className={value ? 'text-slate-100' : 'text-slate-500'}>
-          {value ? formatCategory(value) : placeholder || 'Select'}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="shrink-0 text-slate-500"
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-surface-600/60 bg-surface-700 shadow-lg">
-          <div className="border-b border-surface-600/60 p-2">
-            <input
-              autoFocus
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
-              className="w-full rounded bg-surface-800 px-2 py-1 text-xs text-slate-100 outline-none ring-1 ring-surface-600 focus:ring-accent-500"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto py-1">
-            {value && (
-              <button
-                type="button"
-                onClick={() => select('')}
-                className="block w-full border-b border-surface-600/60 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-surface-600"
-              >
-                Clear selection
-              </button>
-            )}
-            {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-500">No matches</div>
-            ) : (
-              filtered.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => select(opt)}
-                  className={`block w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-600 ${
-                    opt === value ? 'text-accent-400' : 'text-slate-200'
-                  }`}
-                >
-                  {formatCategory(opt)}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Toggle({ value, onChange, title }) {
   return (
     <button
@@ -250,14 +128,6 @@ function LinkPaymentModal({ bill, onClose, onLinked }) {
     })();
   }, []);
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   const q = search.trim().toLowerCase();
   const filtered = txns.filter((t) => {
     if (!q) return true;
@@ -280,15 +150,8 @@ function LinkPaymentModal({ bill, onClose, onLinked }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex bg-black/60 md:items-center md:justify-center md:p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-full w-full flex-col bg-surface-800 md:h-auto md:max-h-[80vh] md:max-w-lg md:rounded-lg md:border md:border-surface-600/60 md:shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="border-b border-surface-600/60 px-5 py-4">
+    <Modal onClose={onClose} variant="mobileSheet" size="lg">
+      <header className="border-b border-surface-600/60 px-5 py-4">
           <div className="text-lg font-semibold text-slate-100">Link payment</div>
           <div className="mt-1 truncate text-sm text-slate-400">
             for {bill.name}
@@ -349,17 +212,16 @@ function LinkPaymentModal({ bill, onClose, onLinked }) {
           )}
         </div>
 
-        <div className="flex justify-end border-t border-surface-600/60 px-5 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
-          >
-            Cancel
-          </button>
-        </div>
+      <div className="flex justify-end border-t border-surface-600/60 px-5 py-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+        >
+          Cancel
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -509,11 +371,6 @@ function BillRow({ bill, onToggleActive, onEdit, onDelete, onLinkPayment, onUnli
   );
 }
 
-const MONTH_LABELS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 function inferFrequencyFromAmounts(amounts) {
   if (!Array.isArray(amounts) || amounts.length !== 12) return 'monthly';
   const nonZeroIdxs = amounts
@@ -628,14 +485,6 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
     setBudgetCategoryTouched(true);
   };
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     const dayNum = Number.parseInt(dueDay, 10);
@@ -700,19 +549,12 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-5 text-lg font-semibold text-slate-100">
-          {initial ? 'Edit Bill' : 'Add Bill'}
-        </div>
+    <Modal onClose={onClose} size="md" panelClassName="p-6">
+      <div className="mb-5 text-lg font-semibold text-slate-100">
+        {initial ? 'Edit Bill' : 'Add Bill'}
+      </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
               Display name
@@ -818,7 +660,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                   onChange={(e) => setAnnualMonth(Number.parseInt(e.target.value, 10))}
                   className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
                 >
-                  {MONTH_LABELS.map((m, i) => (
+                  {SHORT_MONTH_LABELS.map((m, i) => (
                     <option key={m} value={i}>{m}</option>
                   ))}
                 </select>
@@ -885,7 +727,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                     onChange={(e) => setSemiMonth1(Number.parseInt(e.target.value, 10))}
                     className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
                   >
-                    {MONTH_LABELS.map((m, i) => (
+                    {SHORT_MONTH_LABELS.map((m, i) => (
                       <option key={m} value={i}>{m}</option>
                     ))}
                   </select>
@@ -899,7 +741,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                     onChange={(e) => setSemiMonth2(Number.parseInt(e.target.value, 10))}
                     className="w-full rounded-md border border-surface-600/60 bg-surface-700 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-accent-500"
                   >
-                    {MONTH_LABELS.map((m, i) => (
+                    {SHORT_MONTH_LABELS.map((m, i) => (
                       <option key={m} value={i}>{m}</option>
                     ))}
                   </select>
@@ -915,7 +757,7 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
                   Per-month amounts
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {MONTH_LABELS.map((m, i) => (
+                  {SHORT_MONTH_LABELS.map((m, i) => (
                     <div key={m}>
                       <div className="mb-0.5 text-[10px] uppercase tracking-wide text-slate-500">
                         {m}
@@ -1001,25 +843,24 @@ function BillFormModal({ initial, categories, onSubmit, onClose }) {
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : initial ? 'Save' : 'Add'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : initial ? 'Save' : 'Add'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1030,14 +871,6 @@ function DetectBillsModal({ onClose, onAddSelected }) {
   const [selected, setSelected] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
 
   useEffect(() => {
     (async () => {
@@ -1082,16 +915,9 @@ function DetectBillsModal({ onClose, onAddSelected }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg border border-surface-600/60 bg-surface-800 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-surface-600/60 p-6">
-          <div className="text-lg font-semibold text-slate-100">Detect Bills</div>
+    <Modal onClose={onClose} size="lg" panelClassName="flex max-h-[80vh] flex-col">
+      <div className="border-b border-surface-600/60 p-6">
+        <div className="text-lg font-semibold text-slate-100">Detect Bills</div>
           <div className="mt-1 text-sm text-slate-500">
             Recurring charges found in the last 90 days of transactions
           </div>
@@ -1159,18 +985,17 @@ function DetectBillsModal({ onClose, onAddSelected }) {
             >
               Cancel
             </button>
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={saving || selected.size === 0}
-              className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? 'Adding…' : `Add Selected (${selected.size})`}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={saving || selected.size === 0}
+            className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Adding…' : `Add Selected (${selected.size})`}
+          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

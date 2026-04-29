@@ -3,34 +3,12 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
-
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
-
-function formatShortDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: '2-digit',
-  });
-}
-
-function ordinal(n) {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
-function dueText(bill) {
-  if (bill.status === 'overdue') {
-    const n = bill.daysOverdue ?? 0;
-    return `${n} day${n === 1 ? '' : 's'} overdue`;
-  }
-  if (bill.daysUntilDue === 0) return 'due today';
-  if (bill.daysUntilDue === 1) return 'in 1 day';
-  return `in ${bill.daysUntilDue} days`;
-}
+import {
+  currencyFormatter,
+  formatShortDate,
+  ordinal,
+  dueText,
+} from '../lib/format.js';
 
 const BILL_STATUS_STYLES = {
   upcoming: { dot: 'bg-emerald-500', text: 'text-emerald-400' },

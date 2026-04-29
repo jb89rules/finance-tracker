@@ -2,18 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api.js';
 import formatCategory from '../lib/formatCategory.js';
 import PageShell from '../components/PageShell.jsx';
-
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-});
-
-function monthLabel(month, year) {
-  return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-}
+import Modal from '../components/Modal.jsx';
+import { currencyFormatter, monthLabel } from '../lib/format.js';
 
 function ChevronIcon({ dir }) {
   return (
@@ -188,14 +178,6 @@ function AddBudgetModal({ categories, existingCategories, billsByCategory, month
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   const billsForSelected = category ? billsByCategory.get(category) || 0 : 0;
   const bufferNum = Number.parseFloat(buffer) || 0;
   const previewTotal = billsForSelected + bufferNum;
@@ -225,18 +207,11 @@ function AddBudgetModal({ categories, existingCategories, billsByCategory, month
   const availableCategories = categories.filter((c) => !existingCategories.has(c));
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-surface-600/60 bg-surface-800 p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-1 text-lg font-semibold text-slate-100">Add Budget</div>
-        <div className="mb-5 text-sm text-slate-500">For {monthLabel(month, year)}</div>
+    <Modal onClose={onClose} size="md" panelClassName="p-6">
+      <div className="mb-1 text-lg font-semibold text-slate-100">Add Budget</div>
+      <div className="mb-5 text-sm text-slate-500">For {monthLabel(month, year)}</div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs uppercase tracking-wide text-slate-500">
               Category
@@ -285,25 +260,24 @@ function AddBudgetModal({ categories, existingCategories, billsByCategory, month
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-surface-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-accent-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
