@@ -80,30 +80,6 @@ model TransactionSplit {
   createdAt     DateTime    @default(now())
 }
 
-model Budget {
-  id            String @id @default(uuid())
-  category      String
-  limit         Float
-  discretionary Float  @default(0)
-  month         Int
-  year          Int
-}
-
-model Bill {
-  id                  String   @id @default(uuid())
-  name                String
-  matchKeyword        String?
-  linkedTransactionId String?
-  amount              Float
-  monthlyAmounts      Float[]  @default([])
-  frequency           String   @default("monthly")
-  dueDay              Int
-  budgetCategory      String?
-  paymentWindowDays   Int      @default(3)
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-}
-
 model PlannedItem {
   id                  String    @id @default(uuid())
   name                String
