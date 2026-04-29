@@ -9,6 +9,7 @@ import usePlanItems from './hooks/usePlanItems.js';
 import PlanItemRow from './components/PlanItemRow.jsx';
 import AddPlannedItemModal from './components/AddPlannedItemModal.jsx';
 import LinkPaymentModal from './components/LinkPaymentModal.jsx';
+import { UNCATEGORIZED_SENTINEL } from './components/CategoryCard.jsx';
 
 function ChevronIcon({ dir }) {
   return (
@@ -20,7 +21,8 @@ function ChevronIcon({ dir }) {
 
 export default function CategoryDetail() {
   const { category: categoryParam } = useParams();
-  const category = decodeURIComponent(categoryParam);
+  const isUncategorized = categoryParam === UNCATEGORIZED_SENTINEL;
+  const category = isUncategorized ? null : decodeURIComponent(categoryParam);
   const { date, prev, next } = useMonthNav();
   const { items, error, reload, setItems } = usePlanItems({
     category,
@@ -105,7 +107,7 @@ export default function CategoryDetail() {
 
   return (
     <PageShell
-      title={formatCategory(category)}
+      title={isUncategorized ? 'Uncategorized' : formatCategory(category)}
       subtitle={
         <Link to="/plan" className="text-accent-400 hover:text-accent-300">
           ← Back to all categories

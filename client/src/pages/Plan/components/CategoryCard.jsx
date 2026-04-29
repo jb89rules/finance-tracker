@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import formatCategory from '../../../lib/formatCategory.js';
 import { currencyFormatter } from '../../../lib/format.js';
 
+export const UNCATEGORIZED_SENTINEL = '__uncategorized';
+
 export default function CategoryCard({ row }) {
   const total = row.planned ?? 0;
   const spent = row.spent ?? 0;
@@ -11,7 +13,9 @@ export default function CategoryCard({ row }) {
   const barColor =
     pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500';
 
-  const href = `/plan/category/${encodeURIComponent(row.category ?? '')}`;
+  const segment = row.category ? encodeURIComponent(row.category) : UNCATEGORIZED_SENTINEL;
+  const href = `/plan/category/${segment}`;
+  const label = row.category ? formatCategory(row.category) : 'Uncategorized';
 
   return (
     <Link
@@ -19,7 +23,7 @@ export default function CategoryCard({ row }) {
       className="block rounded-lg border border-surface-600/60 bg-surface-800 p-5 transition-colors hover:bg-surface-800/80"
     >
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="font-medium text-slate-100">{formatCategory(row.category)}</div>
+        <div className="font-medium text-slate-100">{label}</div>
       </div>
 
       <div className="mb-3">
