@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   computeBillStatus,
+  computeItemStatus,
   computeMostRecentDue,
   descriptionMatchesBillName,
   amountForMonth,
   billsTotalForCategoryMonth,
-} from '../billStatus.js';
+  categoryRollup,
+  formatDueLabel,
+  hasDate,
+} from '../itemStatus.js';
 
 describe('computeBillStatus', () => {
   beforeEach(() => {
@@ -185,5 +189,191 @@ describe('billsTotalForCategoryMonth', () => {
   it('returns 0 for unknown category or missing category', () => {
     expect(billsTotalForCategoryMonth(bills, 'Pets', 5)).toBe(0);
     expect(billsTotalForCategoryMonth(bills, null, 5)).toBe(0);
+  });
+});
+
+describe('computeItemStatus (PlannedItem)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('returns null status for recurring items with no dueDay (spread)', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0));
+    const item = { kind: 'recurring', dueDay: null };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe(null);
+    expect(r.daysUntilDue).toBe(null);
+  });
+
+  it('returns null status for one_time without oneTimeDate', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0));
+    const item = { kind: 'one_time', oneTimeDate: null };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe(null);
+  });
+
+  it('returns "upcoming" for one_time with future oneTimeDate beyond a week', () => {
+    vi.setSystemTime(new Date(2026, 4, 1, 12, 0, 0));
+    const item = { kind: 'one_time', oneTimeDate: new Date(2026, 4, 20) };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe('upcoming');
+    expect(r.daysUntilDue).toBe(19);
+  });
+
+  it('returns "due-soon" for one_time within 7 days', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0));
+    const item = { kind: 'one_time', oneTimeDate: new Date(2026, 4, 20) };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe('due-soon');
+    expect(r.daysUntilDue).toBe(5);
+  });
+
+  it('returns "overdue" for one_time in the past', () => {
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0));
+    const item = { kind: 'one_time', oneTimeDate: new Date(2026, 4, 10) };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe('overdue');
+    expect(r.daysOverdue).toBe(5);
+  });
+
+  it('routes recurring items with dueDay through the same logic as bare-day callers', () => {
+    vi.setSystemTime(new Date(2026, 4, 1, 12, 0, 0));
+    const item = { kind: 'recurring', dueDay: 20 };
+    const r = computeItemStatus(item);
+    expect(r.status).toBe('upcoming');
+    expect(r.daysUntilDue).toBe(19);
+  });
+});
+
+describe('amountForMonth (one_time)', () => {
+  it('returns the amount when oneTimeDate falls in the requested month/year', () => {
+    const item = {
+      kind: 'one_time',
+      oneTimeDate: new Date(2026, 11, 20), // Dec 20, 2026
+      amount: 800,
+    };
+    expect(amountForMonth(item, 11, 2026)).toBe(800);
+  });
+
+  it('returns 0 for one_time when month does not match', () => {
+    const item = {
+      kind: 'one_time',
+      oneTimeDate: new Date(2026, 11, 20),
+      amount: 800,
+    };
+    expect(amountForMonth(item, 5, 2026)).toBe(0);
+  });
+
+  it('returns 0 for one_time when year does not match', () => {
+    const item = {
+      kind: 'one_time',
+      oneTimeDate: new Date(2026, 11, 20),
+      amount: 800,
+    };
+    expect(amountForMonth(item, 11, 2027)).toBe(0);
+  });
+
+  it('returns 0 for one_time without oneTimeDate', () => {
+    const item = { kind: 'one_time', oneTimeDate: null, amount: 800 };
+    expect(amountForMonth(item, 5, 2026)).toBe(0);
+  });
+});
+
+describe('formatDueLabel', () => {
+  it('formats recurring with dueDay as "the Nth"', () => {
+    expect(formatDueLabel({ kind: 'recurring', dueDay: 1 })).toBe('the 1st');
+    expect(formatDueLabel({ kind: 'recurring', dueDay: 22 })).toBe('the 22nd');
+    expect(formatDueLabel({ kind: 'recurring', dueDay: 15 })).toBe('the 15th');
+  });
+
+  it('returns null for recurring without dueDay (spread)', () => {
+    expect(formatDueLabel({ kind: 'recurring', dueDay: null })).toBe(null);
+  });
+
+  it('formats one_time as "Mmm D"', () => {
+    expect(
+      formatDueLabel({ kind: 'one_time', oneTimeDate: new Date(2026, 11, 20) })
+    ).toBe('Dec 20');
+  });
+
+  it('returns null for one_time without oneTimeDate', () => {
+    expect(formatDueLabel({ kind: 'one_time', oneTimeDate: null })).toBe(null);
+  });
+});
+
+describe('hasDate', () => {
+  it('true for recurring with dueDay', () => {
+    expect(hasDate({ kind: 'recurring', dueDay: 15 })).toBe(true);
+  });
+  it('false for recurring without dueDay', () => {
+    expect(hasDate({ kind: 'recurring', dueDay: null })).toBe(false);
+  });
+  it('true for one_time with oneTimeDate', () => {
+    expect(hasDate({ kind: 'one_time', oneTimeDate: new Date() })).toBe(true);
+  });
+  it('false for one_time without oneTimeDate', () => {
+    expect(hasDate({ kind: 'one_time', oneTimeDate: null })).toBe(false);
+  });
+});
+
+describe('categoryRollup', () => {
+  const items = [
+    {
+      isActive: true,
+      category: 'Utilities',
+      kind: 'recurring',
+      dueDay: 15,
+      monthlyAmounts: Array(12).fill(120),
+      amount: 120,
+    },
+    {
+      isActive: true,
+      category: 'Utilities',
+      kind: 'recurring',
+      dueDay: null, // spread / discretionary
+      monthlyAmounts: Array(12).fill(50),
+      amount: 50,
+    },
+    {
+      isActive: true,
+      category: 'Utilities',
+      kind: 'one_time',
+      oneTimeDate: new Date(2026, 4, 20), // May 20, 2026
+      amount: 200,
+    },
+    {
+      isActive: false,
+      category: 'Utilities',
+      kind: 'recurring',
+      dueDay: 1,
+      monthlyAmounts: Array(12).fill(9999),
+      amount: 9999,
+    },
+    {
+      isActive: true,
+      category: 'Other',
+      kind: 'recurring',
+      dueDay: 1,
+      monthlyAmounts: Array(12).fill(77),
+      amount: 77,
+    },
+  ];
+
+  it('breaks down planned amount by bucket for the active month', () => {
+    const r = categoryRollup(items, 'Utilities', 4, 2026); // May 2026
+    expect(r.billsTotal).toBe(120);
+    expect(r.discretionaryTotal).toBe(50);
+    expect(r.oneTimeTotal).toBe(200);
+    expect(r.planned).toBe(370);
+  });
+
+  it('excludes one-time items not in the target month', () => {
+    const r = categoryRollup(items, 'Utilities', 5, 2026); // June 2026
+    expect(r.oneTimeTotal).toBe(0);
+    expect(r.planned).toBe(170);
+  });
+
+  it('skips inactive items and items in other categories', () => {
+    const r = categoryRollup(items, 'Utilities', 4, 2026);
+    expect(r.billsTotal).toBe(120); // not 9999 + 120
   });
 });

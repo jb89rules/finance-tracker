@@ -6,7 +6,6 @@ import PageShell from '../components/PageShell.jsx';
 import {
   currencyFormatter,
   formatShortDate,
-  ordinal,
   dueText,
 } from '../lib/format.js';
 
@@ -138,7 +137,9 @@ function BillSoonRow({ bill }) {
       <div className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-slate-100">{bill.name}</div>
-        <div className="text-xs text-slate-500">Due on the {ordinal(bill.dueDay)}</div>
+        <div className="text-xs text-slate-500">
+          {bill.dueLabel ? `Due ${bill.dueLabel}` : 'Spread'}
+        </div>
       </div>
       <div className="shrink-0 text-right">
         <div className="text-sm font-medium tabular-nums text-slate-100">
@@ -253,7 +254,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <SectionCard title="Budgets" viewAll="/budgets">
+        <SectionCard title="Budgets" viewAll="/plan">
           {data.budgets.length === 0 ? (
             <EmptyLine>No budgets for this month yet.</EmptyLine>
           ) : (
@@ -291,7 +292,7 @@ export default function Dashboard() {
           )}
         </SectionCard>
 
-        <SectionCard title="Bills due soon" viewAll="/bills">
+        <SectionCard title="Upcoming items" viewAll="/plan">
           {billsDueSoon.length === 0 ? (
             <EmptyLine>No bills due in the next 14 days.</EmptyLine>
           ) : (

@@ -104,6 +104,28 @@ model Bill {
   createdAt           DateTime @default(now())
 }
 
+model PlannedItem {
+  id                  String    @id @default(uuid())
+  name                String
+  category            String?
+  kind                String
+  frequency           String?
+  dueDay              Int?
+  oneTimeDate         DateTime?
+  amount              Float
+  monthlyAmounts      Float[]   @default([])
+  matchKeyword        String?
+  linkedTransactionId String?
+  paymentWindowDays   Int       @default(3)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([category, isActive])
+  @@index([kind, isActive])
+  @@index([oneTimeDate])
+}
+
 model PlaidItem {
   itemId    String   @id
   cursor    String?

@@ -96,11 +96,7 @@ router.post('/merge', async (req, res) => {
         where: { category: source.name },
         data: { category: target.name },
       });
-      await tx.bill.updateMany({
-        where: { budgetCategory: source.name },
-        data: { budgetCategory: target.name },
-      });
-      await tx.budget.updateMany({
+      await tx.plannedItem.updateMany({
         where: { category: source.name },
         data: { category: target.name },
       });
@@ -142,11 +138,7 @@ router.patch('/:id', async (req, res) => {
           where: { category: oldName },
           data: { category: newName },
         });
-        await tx.bill.updateMany({
-          where: { budgetCategory: oldName },
-          data: { budgetCategory: newName },
-        });
-        await tx.budget.updateMany({
+        await tx.plannedItem.updateMany({
           where: { category: oldName },
           data: { category: newName },
         });
@@ -196,11 +188,7 @@ router.delete('/:id', async (req, res) => {
         where: { category: existing.name },
         data: { category: target },
       });
-      await tx.bill.updateMany({
-        where: { budgetCategory: existing.name },
-        data: { budgetCategory: target },
-      });
-      await tx.budget.updateMany({
+      await tx.plannedItem.updateMany({
         where: { category: existing.name },
         data: { category: target },
       });

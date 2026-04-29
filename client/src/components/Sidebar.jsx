@@ -4,8 +4,7 @@ const links = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/accounts', label: 'Accounts' },
   { to: '/transactions', label: 'Transactions' },
-  { to: '/budgets', label: 'Budgets' },
-  { to: '/bills', label: 'Bills' },
+  { to: '/plan', label: 'Plan' },
 ];
 
 export default function Sidebar() {
