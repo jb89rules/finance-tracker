@@ -70,7 +70,9 @@ function BudgetRow({ budget }) {
   return (
     <div className="border-b border-surface-600/60 py-2.5 last:border-0">
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <div className="truncate text-sm text-slate-200">{formatCategory(budget.category)}</div>
+        <div className="truncate text-sm text-slate-200">
+          {budget.category ? formatCategory(budget.category) : 'Uncategorized'}
+        </div>
         <div className="shrink-0 text-xs text-slate-400 tabular-nums">
           {currencyFormatter.format(budget.spent)}
           <span className="text-slate-500"> / {currencyFormatter.format(budget.limit)}</span>
@@ -260,7 +262,7 @@ export default function Dashboard() {
           ) : (
             <div>
               {data.budgets.slice(0, 5).map((b) => (
-                <BudgetRow key={b.id} budget={b} />
+                <BudgetRow key={b.id ?? `derived:${b.category ?? 'uncategorized'}`} budget={b} />
               ))}
             </div>
           )}
