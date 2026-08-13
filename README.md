@@ -6,9 +6,9 @@ What it does:
 
 - Plaid-powered account linking and incremental transaction sync (cursor-based, override-preserving)
 - Transactions list with per-row category and merchant overrides, rule-based automation, and multi-category splits
-- Monthly budgets that aggregate over the effective category (overrides + rules + splits)
-- Bills with auto payment-detection (window match by description + amount), manual transaction linking, and budget-category linkage
-- Dashboard with spending/income trend tiles, top categories, recent transactions, and bills due
+- A unified **Plan** page where budgets and bills are one model — every planned item carries a 12-month amount array, and whether it has a due date is what makes it behave like a bill (dated, payment-matched) or a budget buffer (spread across the month)
+- Auto payment-detection (window match by description + amount), manual transaction linking, and per-item transaction drill-in
+- Dashboard with spending/income trend tiles, top categories, recent transactions, and upcoming items
 - Settings page for categories, rules, transfer-exclusion patterns, pay schedule, bill defaults, and account management
 
 Deployed: client on Vercel, server on Railway. Postgres lives on Railway.
@@ -50,7 +50,7 @@ Copy `server/.env.example` to `server/.env` and fill in values.
 
 | Name | Description |
 | --- | --- |
-| `VITE_API_URL` | Base URL of the backend, e.g. `http://localhost:3001` or your Railway URL |
+| `VITE_API_URL` | Base URL of the backend, e.g. `http://localhost:3001` or your Railway URL. Falls back to `http://localhost:3001` if unset, so local dev works without this file |
 
 Copy `client/.env.example` to `client/.env` and fill in values.
 

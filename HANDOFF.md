@@ -1,6 +1,6 @@
 # Finance Tracker — Handoff
 
-A personal finance web app: Plaid-powered account linking, transaction sync, budgets, bills with auto payment-detection, per-transaction and per-description overrides for merchant and category, rules-based automation, and a Settings page for tuning. Deployed client on Vercel, server on Railway (Postgres).
+A personal finance web app: Plaid-powered account linking, transaction sync, a unified Plan (budgets + bills in one model), per-transaction and per-description overrides for merchant and category, rules-based automation, and a Settings page for tuning. Deployed client on Vercel, server on Railway (Postgres).
 
 GitHub: <https://github.com/jb89rules/finance-tracker>
 
@@ -10,10 +10,23 @@ See [README.md](./README.md) for setup/run instructions. This document is the cu
 
 - **Client**: React 18, Vite 5, React Router 6, Tailwind CSS (dark theme), Axios, react-plaid-link
 - **Server**: Node.js, Express 4, Prisma 6 (PostgreSQL), Plaid Node SDK
-- **Tests**: Vitest in both packages (`npm test` / `npm run test:watch`); covers pure helpers in `*/lib/` only — no DB/HTTP/UI tests yet
+- **Tests**: Vitest in both packages (`npm test` / `npm run test:watch`); covers pure helpers in `*/lib/` only — no DB/HTTP/UI tests yet. 99 server + 11 client = 110 tests.
 - **Database**: PostgreSQL on Railway (single shared DB for dev + prod)
 - **Auth**: single-user password; bearer token = `sha256(APP_PASSWORD)` validated via timing-safe compare. All `/api/*` routes except `/health` and `/api/auth/login` require the header `Authorization: Bearer <token>`.
 - **Deployment**: Vercel (client, root `client/`, framework Vite); Railway (server, root `server/`, start command `npx prisma migrate deploy && node src/index.js`)
+
+## The Plan model — read this first
+
+The single most important thing to understand about this codebase: **budgets and bills are the same thing.** There is no `Bill` table and no `Budget` table; both were dropped. Everything lives in one `PlannedItem` table, and the `/plan` page is the only UI for it.
+
+The unifying idea is that a planned item is *money you expect to spend in a category*, and the only real variable is **whether it has a date attached**:
+
+- An item **with** a `dueDay` (or a `oneTimeDate`) behaves like a bill — it has a due date, a status (`upcoming` / `due-soon` / `overdue` / `paid`), and gets matched against a real transaction to decide whether it's been paid.
+- An item **without** a date (`dueDay: null`) behaves like a budget buffer — it "spreads" across the month, and its spend is whatever transactions in that category add up to.
+
+`monthlyAmounts` (a 12-element `Float[]`) is the single source of truth for cost in both cases. A monthly bill is the same amount twelve times; an annual bill is the amount once and `0` eleven times; a variable utility differs each month. Any code doing money math should read `amountForMonth(item, month0, year)` — never the legacy scalar `amount` field.
+
+A category's total for a month is the sum of `amountForMonth` across every active item in that category. That's what `/api/plan/rollup` returns, and it's what the Plan page cards show.
 
 ## Project structure
 
@@ -29,42 +42,61 @@ See [README.md](./README.md) for setup/run instructions. This document is the cu
 │   └── src/
 │       ├── main.jsx, App.jsx, index.css
 │       ├── components/
-│       │   ├── BottomNav.jsx     (mobile tab bar, md:hidden)
-│       │   ├── PageShell.jsx     (title / subtitle / action / mobile gear)
+│       │   ├── BottomNav.jsx        (mobile tab bar, md:hidden — 4 tabs)
+│       │   ├── CategoryCombobox.jsx (shared searchable category picker)
+│       │   ├── Modal.jsx            (shared modal shell)
+│       │   ├── PageShell.jsx        (title / subtitle / action / mobile gear)
 │       │   ├── ProtectedRoute.jsx
-│       │   └── Sidebar.jsx       (desktop nav, hidden md:flex)
+│       │   └── Sidebar.jsx          (desktop nav, hidden md:flex — 4 links + gear)
 │       ├── lib/
-│       │   ├── api.js                 (axios instance + request/response interceptors for bearer + 401 redirect)
-│       │   ├── excludedCategories.js  (EXCLUDED_CATEGORIES constant; isTransferTransaction(t, patterns) — patterns must be supplied by caller, typically from /api/settings)
+│       │   ├── api.js                 (axios instance + bearer / 401-redirect interceptors)
+│       │   ├── excludedCategories.js  (EXCLUDED_CATEGORIES; isTransferTransaction(t, patterns) — patterns must be supplied by caller)
+│       │   ├── format.js              (shared currency / date formatters)
 │       │   └── formatCategory.js      (Plaid raw name → friendly label)
 │       └── pages/
 │           ├── Accounts.jsx
-│           ├── Bills.jsx
-│           ├── Budgets.jsx
 │           ├── Dashboard.jsx
 │           ├── Login.jsx
 │           ├── Settings.jsx
-│           └── Transactions.jsx
+│           ├── Transactions.jsx
+│           └── Plan/
+│               ├── index.jsx              (category cards + month nav)
+│               ├── CategoryDetail.jsx     (drill-in: item table + 12-month editor)
+│               ├── components/
+│               │   ├── AddPlannedItemModal.jsx
+│               │   ├── CategoryCard.jsx
+│               │   ├── DetectItemsModal.jsx
+│               │   ├── LinkPaymentModal.jsx
+│               │   ├── MonthlyAmountsEditor.jsx
+│               │   ├── PlanItemRow.jsx
+│               │   ├── PlanItemTransactions.jsx
+│               │   └── StatusPill.jsx
+│               └── hooks/
+│                   ├── useMonthNav.js
+│                   ├── usePlanItems.js
+│                   ├── usePlanItemTransactions.js
+│                   └── usePlanRollup.js
 └── server/               Express + Prisma
     ├── package.json      (dev: nodemon src/index.js; start: node src/index.js)
     ├── prisma/
     │   ├── schema.prisma
-    │   └── migrations/   (10 applied migrations)
+    │   └── migrations/   (14 applied migrations)
     └── src/
         ├── index.js      (Express app; mounts all routers; CORS from FRONTEND_URL)
         ├── middleware/
         │   └── auth.js   (authMiddleware, hashPassword)
         ├── lib/
-        │   ├── billStatus.js          (computeBillStatus, enrichBillsWithPayments, descriptionMatchesBillName, findBillPayment)
-        │   ├── dashboardAggregates.js (pure helpers extracted from routes/dashboard.js: pctChange, descriptionMatchesPatterns, descriptionContains, computeMonthTotals, computeTopCategories, computeBudgetSpent)
-        │   ├── effectiveCategory.js   (loadCategoryRuleMap, effectiveCategoryOf, hasSplits)
-        │   ├── excludedCategories.js  (EXCLUDED_CATEGORIES, default EXCLUDED_DESCRIPTIONS; getExcludedDescriptions(prisma) reads AppSetting.excludedDescriptions at query time; NON_TRANSFER_CATEGORY; buildNonTransferDescriptionFilter)
-        │   ├── formatCategory.js      (server copy of the client formatter; used on sync)
-        │   ├── plaid.js               (Plaid API client factory; PLAID_ENV + credentials)
-        │   └── __tests__/             (Vitest unit tests for the pure helpers above)
+        │   ├── dashboardAggregates.js  (pure helpers for routes/dashboard.js)
+        │   ├── effectiveCategory.js    (loadCategoryRuleMap, effectiveCategoryOf, hasSplits)
+        │   ├── excludedCategories.js   (EXCLUDED_CATEGORIES, getExcludedDescriptions(prisma), NON_TRANSFER_CATEGORY, buildNonTransferDescriptionFilter)
+        │   ├── formatCategory.js       (server copy of the client formatter; used on sync)
+        │   ├── itemStatus.js           (the PlannedItem engine — see below)
+        │   ├── plaid.js                (Plaid API client factory)
+        │   ├── plannedItemValidation.js (validatePlannedItemInput, shared by route + scripts)
+        │   └── __tests__/              (Vitest unit tests for the pure helpers above)
         ├── routes/
-        │   ├── auth.js, bills.js, budgets.js, categories.js, categoryRules.js,
-        │   ├── dashboard.js, merchantRules.js, plaid.js, settings.js, transactions.js
+        │   ├── auth.js, categories.js, categoryRules.js, dashboard.js,
+        │   ├── merchantRules.js, plaid.js, plan.js, settings.js, transactions.js
         └── scripts/      (one-shot operational scripts, listed below)
 ```
 
@@ -101,25 +133,25 @@ User-defined breakdown of a single Transaction into multiple categories. Cascade
 - `category String` — always required
 - `note String?`, `createdAt`
 
+### PlannedItem
+**The unified budget + bill model.** Replaced the old `Bill` and `Budget` tables.
+- `id`, `name String`, `category String?` (null = the "Uncategorized" rollup group)
+- `kind String` — `"recurring" | "one_time"`
+- `frequency String?` — `"monthly" | "annual" | "semi-annual" | "custom"`. **Drives the entry UI only.** All math reads `monthlyAmounts`.
+- `dueDay Int?` — 1–31, clamped to the last day of short months. **`null` means the item spreads across the month** (a discretionary buffer) rather than landing on a date.
+- `oneTimeDate DateTime?` — set instead of `dueDay` when `kind = "one_time"`
+- `amount Float` — **legacy scalar**, derived server-side as `max(monthlyAmounts)`. Kept so payment-detection match windows still work. Do not use it for totals.
+- `monthlyAmounts Float[] @default([])` — 12 elements, the source of truth for per-month cost
+- `matchKeyword String?` — used for payment detection; falls back to `name` if null
+- `linkedTransactionId String?` — manual link; when set, overrides all auto-matching
+- `paymentWindowDays Int @default(3)` — ±days around the due date where a matching payment counts
+- `isActive Boolean @default(true)`, `createdAt`, `updatedAt`
+- Indexes: `[category, isActive]`, `[kind, isActive]`, `[oneTimeDate]`
+
 ### Category
 The single source of truth for the category dropdown used everywhere.
 - `id`, `name String @unique`, `color String @default("#6366f1")`, `type String @default("expense")` — `"expense" | "income" | "transfer"`
 - `createdAt`
-- Seeded from existing distinct transaction categories by `seedCategories.js`.
-
-### Budget
-- `id`, `category String`, `limit Float`, `month Int` (1–12), `year Int`
-- `spent` is computed at read time in `/api/budgets` — not stored.
-
-### Bill
-- `id`, `name String`, `amount Float`, `dueDay Int` (1–31, clamped to last day of short months)
-- `matchKeyword String?` — used for payment detection; falls back to `name` if null
-- `linkedTransactionId String?` — manual link; when set, overrides all auto-matching
-- `budgetCategory String?` — links bill to a budget (transactions matching bill name contribute to that budget)
-- `paymentWindowDays Int @default(3)` — ±days around most-recent due date where a matching payment counts
-- `isActive Boolean @default(true)`, `createdAt`
-
-Notes: No `category` column — was intentionally dropped in migration `drop_bill_category`. Use `budgetCategory` only.
 
 ### CategoryRule
 Auto-applies a category to transactions whose description matches.
@@ -134,74 +166,85 @@ Same shape, but for merchant display name.
 ### PlaidItem
 Per-Item state for incremental Plaid sync. One row per linked Plaid Item.
 - `itemId String @id` — matches `Account.itemId`
-- `cursor String?` — most recent `next_cursor` from `transactionsSync`. Null on first sync. Persisted only after the full pagination loop completes; if a sync fails mid-pagination, the next attempt resumes from the previous cursor.
+- `cursor String?` — most recent `next_cursor` from `transactionsSync`. Persisted only after the full pagination loop completes; a mid-pagination failure resumes from the previous cursor.
 - `createdAt`, `updatedAt`
-- Created/upserted at the end of each successful per-Item sync; deleted on `disconnect-item`.
 
 ### AppSetting
 Key/value store for mutable app configuration (user-editable from Settings).
 - `key String @id`, `value String`, `updatedAt`
-- Keys in use:
-  - `paycheckAmount` (string of a number; default `"0"`)
-  - `payFrequency` (`"weekly" | "bi-weekly" | "semi-monthly" | "monthly"`; default `"bi-weekly"`)
-  - `lastPayDate` (ISO date string)
-  - `defaultPaymentWindow` (`"1"`–`"14"`; default `"3"`)
-  - `excludedDescriptions` (JSON array of strings; defaults to 5 SoFi patterns)
+- Keys in use: `paycheckAmount`, `payFrequency` (`weekly | bi-weekly | semi-monthly | monthly`), `lastPayDate`, `defaultPaymentWindow` (`"1"`–`"14"`), `excludedDescriptions` (JSON array of strings)
+
+## `lib/itemStatus.js` — the PlannedItem engine
+
+The renamed and extended successor to the old `billStatus.js`. Everything date- and payment-related lives here.
+
+- `amountForMonth(item, month0, year)` — the dollar figure for a given month. Returns `0` for months an annual item doesn't hit. **Use this, not `item.amount`.**
+- `computeItemStatus(item)` — `{ status, daysUntilDue, daysOverdue }`, where status is `upcoming | due-soon | overdue | paid`
+- `computeMostRecentDue(item)` / `resolveDueDate(...)` — due-date resolution with short-month clamping
+- `findItemPayment(...)` — window match (±`paymentWindowDays`, ±10% of the *per-month* amount, description match). Skips entirely when `monthlyAmounts[month0]` is `0`, so annual bills don't false-match in off months.
+- `enrichItemsWithPayments(prisma, items)` — attaches `paidDate` / `paidAmount`
+- `descriptionMatchesItemName(...)` — requires every name token to appear as a **whole word** in the description. Stops `"sofi"`-in-`"soficity"` leaks. Heads-up: a very abbreviated `matchKeyword` like `"Net"` will not match `"NETFLIX"` — use the full token.
+- `categoryRollup(items, category, month0, year)` — `{ planned, billsTotal, discretionaryTotal, oneTimeTotal }`
+- `formatDueLabel(item)` — server-formatted string (`"the 19th"`, a date for one-offs) so the client never branches on `dueDay` vs `oneTimeDate`
+- `hasDate(item)` — dated (bill-like) vs spread (buffer-like)
+
+Legacy aliases (`computeBillStatus`, `descriptionMatchesBillName`, `findBillPayment`, `enrichBillsWithPayments`, `billsTotalForCategoryMonth`) are still exported so older call sites and tests keep working.
 
 ## API routes
 
 All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `GET /health` is also unauthenticated.
 
+> `/api/budgets` and `/api/bills` **no longer exist** — both return 404. Use `/api/plan`.
+
 ### Auth — `/api/auth`
 - `POST /login` — body `{ password }` → `{ token }` or 401 `{ error: "Invalid password" }`
 
-### Plaid — `/api/plaid`
-- `POST /create-link-token` → `{ link_token }`
-- `POST /create-link-token-update` — body `{ itemId }` → `{ link_token }` for Plaid Link update mode (reconnect a failed Item)
-- `POST /exchange-token` — body `{ public_token, institution_name, accounts[] }` → exchanges public token, fetches initial balances + account masks, upserts Accounts. `{ success: true }`
-- `POST /sync` — pulls transactions for every linked Item via `transactionsSync` using a per-Item cursor stored in `PlaidItem.cursor`. Loads cursor at start of pagination, processes `added` (upsert), `modified` (upsert, override-preserving), `removed` (delete), and persists `next_cursor` after the loop completes. Preloads MerchantRule + CategoryRule maps, applies them on create (split-aware), then refreshes balances. `{ added: N }`. N is new-only (existence-checked).
-- `POST /refresh-balances` → `{ accounts, failed: [{ itemId, error_code }] }`. Per-item tolerant; one dead item doesn't fail the whole call.
-- `GET /balances` → `{ total, institutions: [{ name, total, accounts: [...] }] }` — total is net worth (depository + investment minus credit + loan).
-- `GET /accounts` — flat list of all Plaid accounts.
-- `POST /disconnect-item` — body `{ itemId }` → best-effort `itemRemove` on Plaid + clears local `accessToken`/`itemId` + deletes the `PlaidItem` cursor row. Keeps Account row + history. `{ success: true }`
+### Plan — `/api/plan`
+- `GET /items?month&year&category&kind&isActive&hasDate` — planned items, each decorated with `status`, `daysUntilDue`, `daysOverdue`, `dueLabel`, `amountForMonth`, plus `paidDate` / `paidAmount` when matched. `hasDate=true|false` filters dated vs spread items.
+- `GET /rollup?month&year` — per-category monthly rollup: `{ category, planned, billsTotal, discretionaryTotal, oneTimeTotal, spent, remaining, month, year }`. Only categories with at least one active item contributing a non-zero amount that month appear. `category` is `null` for the Uncategorized group.
+- `GET /items/:id/transactions?month&year` — the transactions counting toward this item for that month. For dated items, the matched payment (month-scoped, so historical drill-ins return the right transaction). For spread items, every category-matching transaction in the month **minus** those owned by dated siblings, so buffers don't double-count.
+- `GET /detect` — last 90 days, groups by normalized description, requires ≥2 occurrences with amounts within 15% of median. Returns suggestions sorted by amount desc.
+- `POST /items` — create; validated by `validatePlannedItemInput`
+- `PATCH /items/:id` — partial update, same validator with `{ partial: true }`
+- `PATCH /items/:id/monthly-amounts` — dedicated 12-month editor endpoint
+- `PATCH /items/:id/active` — toggle `isActive`
+- `DELETE /items/:id`
+- `POST /items/:id/link-transaction` — body `{ transactionId }`. Overrides auto-detection.
+- `DELETE /items/:id/link-transaction` — clears the link.
 
 ### Transactions — `/api/transactions`
-- `GET /` — query `?category`, `?account`, `?search`. Joins `MerchantRule` and `CategoryRule` in-memory and returns each txn with computed `displayName` and `effectiveCategory` (null for split txns). The `category` query filter uses `effectiveCategory`.
-- `GET /categories` — proxies Category table names (replaced the old distinct-transactions query).
-- `PATCH /:id` — body `{ category }` (legacy; still writes raw `category`; not used by the UI anymore).
+- `GET /` — query `?category`, `?account`, `?search`. Joins `MerchantRule` and `CategoryRule` in-memory and returns each txn with computed `displayName` and `effectiveCategory` (null for split txns). The `category` filter uses `effectiveCategory`.
+- `GET /categories` — proxies Category table names.
+- `PATCH /:id` — body `{ category }` (legacy; writes raw `category`; unused by the UI).
 - `PATCH /:id/category` — body `{ categoryOverride, applyToAll }`. **Rejects split txns with 400.** `applyToAll` upserts a CategoryRule and `updateMany`s non-split siblings.
-- `PATCH /:id/merchant` — body `{ merchantOverride, applyToAll }`. `applyToAll` upserts a MerchantRule and updates all siblings.
-- `POST /:id/splits` — body `{ splits: [{ amount, category, note? }] }`. Validates sum within $0.01 of `abs(transaction.amount)`; at least 2 items. Replaces existing splits atomically.
-- `DELETE /:id/splits` — clears all splits on a transaction.
+- `PATCH /:id/merchant` — body `{ merchantOverride, applyToAll }`.
+- `POST /:id/splits` — body `{ splits: [{ amount, category, note? }] }`. Sum must be within $0.01 of `abs(transaction.amount)`; ≥2 items. Replaces existing splits atomically.
+- `DELETE /:id/splits` — clears all splits.
 
-### Budgets — `/api/budgets`
-- `GET ?month&year` (defaults to current) — returns budgets with computed `spent`. Spent is computed in-memory: per budget, sums matching unsplit transactions by `effectiveCategory` OR bill-description match (for bills linked to this budget via `budgetCategory`), plus matching `TransactionSplit.category`. Transfers excluded by category and by `AppSetting.excludedDescriptions`.
-- `POST /` — body `{ category, limit, month, year }`
-- `PATCH /:id` — body `{ limit }`
-- `DELETE /:id`
-
-### Bills — `/api/bills`
-- `GET /detect` — last 90 days of transactions, groups by normalized description, requires ≥2 occurrences with amounts within 15% of median, returns `[{ name, matchKeyword, amount, dueDay, txnCategory }]` sorted by amount desc.
-- `GET /` — bills enriched with `daysUntilDue`, `daysOverdue`, `status` (`upcoming | due-soon | overdue | paid`), and if paid: `paidDate`, `paidAmount`. Uses `linkedTransactionId` if set, otherwise a window match (±`paymentWindowDays`, ±10% amount, description match via `matchKeyword || name`).
-- `POST /`, `PATCH /:id` — standard CRUD validated in `validateBillInput`
-- `DELETE /:id`
-- `POST /:id/link-transaction` — body `{ transactionId }`. Overrides detection.
-- `DELETE /:id/link-transaction` — clears the link.
+### Plaid — `/api/plaid`
+- `POST /create-link-token` → `{ link_token }`
+- `POST /create-link-token-update` — body `{ itemId }` → link token for Plaid Link update mode (reconnect a failed Item)
+- `POST /exchange-token` — body `{ public_token, institution_name, accounts[] }` → exchanges, fetches balances + masks, upserts Accounts
+- `POST /sync` — `transactionsSync` per Item using `PlaidItem.cursor`. Processes `added` (upsert), `modified` (upsert, override-preserving), `removed` (delete); persists `next_cursor` after the loop. Preloads Merchant + Category rule maps and applies them on create (split-aware), then refreshes balances. `{ added: N }`.
+- `POST /refresh-balances` → `{ accounts, failed: [{ itemId, error_code }] }`. Per-item tolerant.
+- `GET /balances` → `{ total, institutions: [...] }` — total is net worth (depository + investment minus credit + loan).
+- `GET /accounts` — flat list of all Plaid accounts.
+- `POST /disconnect-item` — body `{ itemId }` → best-effort `itemRemove` + clears local `accessToken`/`itemId` + deletes the `PlaidItem` row. Keeps Account row + history.
 
 ### Dashboard — `/api/dashboard`
 - `GET /` — one-shot payload:
-  - `spending: { thisMonth, lastMonth, percentChange }`, `income: { thisMonth, lastMonth, percentChange }` — computed in-memory from enriched transactions. Respects `effectiveCategory`, EXCLUDED_CATEGORIES, and AppSetting-backed description patterns. For split txns, uses split amounts/categories; transfers excluded.
+  - `spending: { thisMonth, lastMonth, percentChange }`, `income: { ... }` — computed in-memory from enriched transactions; respects `effectiveCategory`, `EXCLUDED_CATEGORIES`, and AppSetting description patterns. Splits use split amounts/categories.
   - `recentTransactions` — last 5 with account info.
-  - `budgets` — current month's budgets with `spent`.
-  - `bills` — active bills with status + payment detection.
-  - `topCategories` — top 5 spending categories this month with `amount` and `percent` of total spending.
+  - `budgets` — current-month rollup rows, mirroring `/api/plan/rollup`. **These are derived rows: `id` is `null` on every row and `category` is `null` for the Uncategorized group.** Clients must not use `id` as a React key or assume `category` is a string.
+  - `bills` — active planned items with status + payment detection + server-formatted `dueLabel`. Real UUID `id`s.
+  - `topCategories` — top 5 spending categories this month with `amount` and `percent`. Null categories are skipped.
 
 ### Categories — `/api/categories`
 - `GET /` — all categories sorted by name.
 - `POST /` — body `{ name, color, type }` (409 on duplicate name).
-- `PATCH /:id` — name changes cascade into `transaction.category`, `transactionSplit.category`, `bill.budgetCategory`, `budget.category` in one `$transaction`.
-- `DELETE /:id` — body `{ reassignTo }` (category name). Updates all references then deletes. Returns `{ success, transactionsUpdated }`.
-- `POST /merge` — body `{ sourceId, targetId }`. Updates all references from source to target then deletes source.
+- `PATCH /:id` — name changes cascade into `transaction.category`, `transactionSplit.category`, and `plannedItem.category` in one `$transaction`.
+- `DELETE /:id` — body `{ reassignTo }` (category name). Updates all references then deletes.
+- `POST /merge` — body `{ sourceId, targetId }`.
 
 ### Category rules — `/api/category-rules`
 - `GET /`, `POST /` (upsert on description), `DELETE /:id`
@@ -210,8 +253,8 @@ All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `
 - `GET /`, `POST /` (upsert on description), `DELETE /:id`
 
 ### Settings — `/api/settings`
-- `GET /` — returns DB rows merged with defaults as `{ key: value }`.
-- `POST /` — body `{ key, value }` upsert. `value` is always coerced to string.
+- `GET /` — DB rows merged with defaults as `{ key: value }`.
+- `POST /` — body `{ key, value }` upsert. `value` coerced to string.
 
 ## Environment variables
 
@@ -219,88 +262,90 @@ All under `/api/*`, all require bearer auth **except** `POST /api/auth/login`. `
 - `DATABASE_URL` — Postgres connection string (use Railway's public proxy URL for local dev, e.g. `mainline.proxy.rlwy.net:53639`)
 - `FRONTEND_URL` — exact origin allowed by CORS (no trailing slash). Must match the Vercel URL in production.
 - `PORT` — default `3001`. Railway sets this automatically.
-- `HOST` — interface to bind. Default: `0.0.0.0` when `NODE_ENV=production` (Railway), `127.0.0.1` otherwise (local dev — keeps the dev server off the LAN). Override only when you need to test from another device on the same network.
-- `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` (`sandbox | development | production`). Local is currently on `development`.
-- `APP_PASSWORD` — the single-user login password. Local value: `password` (placeholder; change anytime). Production must have its own set in Railway.
+- `HOST` — interface to bind. Default `0.0.0.0` when `NODE_ENV=production`, `127.0.0.1` otherwise (keeps the dev server off the LAN). Override only to test from another device.
+- `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` (`sandbox | development | production`). Local is on `development`.
+- `APP_PASSWORD` — single-user login password. Local value: `password` (throwaway). Production must set its own in Railway.
 
 ### Client (`client/.env`, gitignored; see `client/.env.example`)
-- `VITE_API_URL` — backend base URL. Local: `http://localhost:3001`. Prod: the Railway URL of the server service.
+- `VITE_API_URL` — backend base URL. Falls back to `http://localhost:3001` if the file is absent, so local dev works without it.
 
 ## Frontend pages
 
-- **Login** (`/login`) — centered card, password field. On success stores `auth_token` in localStorage and navigates to `/`. Axios interceptors auto-attach the bearer and hard-redirect to `/login` on any 401.
-- **Dashboard** (`/`) — 4 stat cards (Total balance from `/api/plaid/balances`, Spending, Income, Active bills), Budgets overview + Recent transactions row, Top spending categories + Bills due soon row.
-- **Accounts** (`/accounts`) — accounts listed grouped by institution with Connect/Refresh buttons. Includes a "Manage connections → Settings" link; full management UI also lives in Settings.
-- **Transactions** (`/transactions`) — summary cards, filter bar (search, category, account) + "Show transfers" toggle, dual mobile/desktop rendering: desktop 6-col table (Date / Description / Merchant / Account / Category / Amount), mobile stacked card rows. Inline category badge opens `CategoryOverrideModal`; split txns show `SplitBadge` instead and do NOT open the category popover. Merchant cell opens `MerchantOverrideModal`. Scissors icon opens `SplitEditorModal`.
-- **Budgets** (`/budgets`) — month nav, budget cards with progress bars, Add Budget modal with native `<select>` from `/api/categories`.
-- **Bills** (`/bills`) — summary cards (Monthly / Due this week / Paid this month / Active), bill rows with status dot, category/budget-category badges, Active toggle, Edit/Delete. Detect Bills modal, Link payment modal (pick a transaction to mark as paid), paid bills visually dimmed.
-- **Settings** (`/settings`) — Income & pay / Categories (add, rename inline, color picker, type, delete with reassignment, merge) / Merchant rules / Category rules / Transfer exclusion rules / Bill defaults / Connected accounts (Refresh + Reconnect via update mode + Disconnect).
+- **Login** (`/login`) — centered card, password field. Stores `auth_token` in localStorage. Axios interceptors attach the bearer and hard-redirect to `/login` on any 401.
+- **Dashboard** (`/`) — 4 stat cards (Total balance from `/api/plaid/balances`, Spending, Income, Active bills), Budgets overview + Recent transactions row, Top spending categories + Upcoming items row. Budget rows link to `/plan`; upcoming items render the server's `dueLabel`.
+- **Accounts** (`/accounts`) — accounts grouped by institution with Connect/Refresh. Full management UI also lives in Settings.
+- **Transactions** (`/transactions`) — summary cards, filter bar (search, category, account) + "Show transfers" toggle, dual mobile/desktop rendering. Category badge opens the override modal; split txns show a split badge instead and don't open the popover. Merchant cell opens the merchant override modal. Scissors icon opens the split editor.
+- **Plan** (`/plan`) — the unified budgets + bills page.
+  - Index: month nav + one `CategoryCard` per category showing `spent of planned`, a bills/buffer breakdown, percent used, and remaining. The `null` category renders as **"Uncategorized"**.
+  - `CategoryDetail` (`/plan/category/:category`) — drill-in table of that category's items. Each row has a caret expanding the transactions that count toward it for the visible month, a status pill, and an inline 12-month amounts editor. The Uncategorized group uses a sentinel path segment.
+  - Modals: Add planned item, Detect items, Link payment.
+- **Settings** (`/settings`) — Income & pay / Categories (add, rename inline, color, type, delete with reassignment, merge) / Merchant rules / Category rules / Transfer exclusion rules / Bill defaults / Connected accounts (Refresh + Reconnect via update mode + Disconnect).
+
+Legacy routes `/budgets` and `/bills` `<Navigate>`-redirect to `/plan`.
 
 Navigation:
-- Desktop: `Sidebar` with primary routes + a gear icon at the bottom for Settings.
-- Mobile: `BottomNav` fixed at the bottom with Dashboard / Transactions / Budgets / Bills / Accounts. `PageShell` renders a gear icon in the top-right on mobile that links to `/settings`.
+- Desktop `Sidebar`: Dashboard / Accounts / Transactions / Plan, plus a gear at the bottom for Settings.
+- Mobile `BottomNav`: Dashboard / Transactions / Plan / Accounts. `PageShell` renders a gear top-right linking to `/settings`.
 
 ## Migration history
 
 Applied in `server/prisma/migrations/` (ordered):
 
 1. `20260423001749_init` — Account, Transaction, Budget, Bill
-2. `20260423232520_drop_bill_category` — dropped `Bill.category` (manually authored SQL because Prisma flagged data loss)
+2. `20260423232520_drop_bill_category` — dropped `Bill.category`
 3. `20260424003600_add_bill_budget_category` — `Bill.budgetCategory`
-4. `20260424010023_add_transaction_splits` — TransactionSplit model + Transaction.splits relation
+4. `20260424010023_add_transaction_splits` — TransactionSplit
 5. `20260424011836_add_bill_payment_window` — `Bill.paymentWindowDays`
-6. `20260424015013_enhance_plaid_data` — Account balance fields, Transaction merchant/logo/pending fields
+6. `20260424015013_enhance_plaid_data` — Account balance fields, Transaction merchant/logo/pending
 7. `20260424030843_add_bill_match_keyword` — `Bill.matchKeyword` + `Bill.linkedTransactionId`
 8. `20260424033509_add_settings` — Category, AppSetting
 9. `20260424144349_add_merchant_rules` — MerchantRule + `Transaction.merchantOverride`
 10. `20260424213405_add_category_rules` — CategoryRule + `Transaction.categoryOverride`
-11. `20260424220000_add_plaid_item_cursor` — PlaidItem (per-Item cursor for incremental Plaid sync)
+11. `20260424220000_add_plaid_item_cursor` — PlaidItem
+12. `20260425003000_add_bill_frequency_and_budget_discretionary` — `Bill.frequency`, `Bill.monthlyAmounts`, `Budget.discretionary`; backfilled existing rows
+13. `20260428210000_add_planned_item` — PlannedItem, added additively alongside Bill/Budget
+14. `20260428220000_drop_budget_and_bill` — dropped both legacy tables after the data migration verified
 
-Railway's Start Command is `npx prisma migrate deploy && node src/index.js`, so each deploy auto-applies any pending migrations.
+Railway's Start Command is `npx prisma migrate deploy && node src/index.js`, so each deploy auto-applies pending migrations.
 
 ## Migration / one-shot scripts (`server/src/scripts/`)
 
-Run with `cd server && node src/scripts/<name>.js`. All read `DATABASE_URL` from `.env`. All are idempotent and safe to re-run.
+Run with `cd server && node src/scripts/<name>.js`. All read `DATABASE_URL` from `.env`.
 
-- **`seedCategories.js`** — reads distinct non-null values from `Transaction.category`, upserts `Category` rows (skipping existing). Type rule: `Income → income`, `Transfer In/Out → transfer`, else `expense`. Color deterministically picked from 10-color palette hashed from the name.
-- **`normalizeCategories.js`** — generic string normalizer. For each distinct value in `transaction.category`, `bill.category` (now removed), `bill.budgetCategory`, and `budget.category`, runs it through `formatCategory()` and updates all matching rows. Skips rows that are already formatted.
-- **`recategorizeTransferDescriptions.js`** — seeds a hardcoded list of `{pattern → target category}` mappings (SoFi Round Ups etc.) and updates every transaction whose description contains the pattern.
-- **`backfillMatchKeyword.js`** — sets `Bill.matchKeyword = Bill.name` for any bill where `matchKeyword` is null. Intended to run once after the `add_bill_match_keyword` migration.
-- **`applyCategoryRules.js`** — seeds a hardcoded `{description → categoryOverride}` rule list into `CategoryRule` and applies the override to all matching non-split transactions. Currently seeds just `"To Round Ups Vault" → "Transfer Out"`. Intended to run once after the `add_category_rules` migration.
+**Live:**
+- **`seedCategories.js`** — upserts `Category` rows from distinct `Transaction.category` values. Type rule: `Income → income`, `Transfer In/Out → transfer`, else `expense`. Color hashed from the name.
+- **`recategorizeTransferDescriptions.js`** — seeds hardcoded `{pattern → category}` mappings (SoFi Round Ups etc.) and updates matching transactions.
+- **`applyCategoryRules.js`** — seeds a hardcoded rule list into `CategoryRule` and applies it to matching non-split transactions.
 
-If you point `DATABASE_URL` at a fresh production DB (not the Railway one currently shared with local), run `seedCategories.js` + `backfillMatchKeyword.js` + `applyCategoryRules.js` once in that order.
+**Dead — do not run:**
+- **`backfillMatchKeyword.js`** and **`normalizeCategories.js`** both call `prisma.bill` / `prisma.budget`, which no longer exist. They will throw immediately. They survived the `d2f1d81` cleanup by oversight and should be deleted or ported.
+
+The PlannedItem data-migration scripts (`migratePlannedItems.js`, `verifyPlanMigration.js`) were removed in `d2f1d81` after the migration was applied and verified against production.
 
 ## Recent changes (most recent first)
 
-- **Pending-issues sweep** (uncommitted) — worked through every entry in the old "Known issues" list:
-  - Removed dead `netWorth: { totalBalance: 0 }` field from `/api/dashboard` payload (client was already ignoring it and calling `/api/plaid/balances` directly).
-  - Removed the hardcoded `EXCLUDED_DESCRIPTIONS` constant + default-arg fallback from `client/src/lib/excludedCategories.js`. `isTransferTransaction(t, patterns)` now requires the caller to pass patterns explicitly; only consumer (Transactions page) already does.
-  - **Plaid cursor persistence**: new `PlaidItem` model (migration `20260424220000_add_plaid_item_cursor`) with `itemId` PK + `cursor`. `/api/plaid/sync` now loads cursor at the start of each Item's pagination loop, persists `next_cursor` only after the loop completes successfully, and handles `transactionsSync` `modified` (upsert, override-preserving) and `removed` (delete) — not just `added`. `/api/plaid/disconnect-item` cleans up the `PlaidItem` row.
-  - **Bill payment matcher tightened** (`server/src/lib/billStatus.js`): `descriptionMatchesBillName` now requires every bill-name token to appear as a *whole word* in the transaction description. Stops `"sofi"`-in-`"soficity"` substring leaks and shared-common-word false positives (e.g., bill `"Credit Card"` previously matched any txn description containing `"credit"`). Heads-up: bills with very abbreviated `matchKeyword` like `"Net"` no longer match `"NETFLIX"` — set `matchKeyword` to the full token.
-  - **Vitest test suite added** in both packages: `npm test` / `npm run test:watch`. 65 unit tests covering pure helpers in `server/src/lib/` (billStatus, effectiveCategory, excludedCategories, formatCategory, dashboardAggregates) and `client/src/lib/` (formatCategory, excludedCategories). Extracted dashboard's pure aggregation helpers into a new `server/src/lib/dashboardAggregates.js` so they're testable independently of the route's DB calls.
-  - **Prisma upgrade 5.22 → 6.19.3**. Prisma 7 was attempted and rolled back: 7 removed `url` from `schema.prisma` and requires a driver-adapter rewrite of every `new PrismaClient()` site. Stayed on 6.x as a low-risk single-major bump. Schema validates, all 54 server tests pass, smoke-tested every Prisma-backed endpoint (dashboard/transactions/bills/categories/budgets/merchant-rules/settings) — all return correct data.
-  - **Dev server now binds to `127.0.0.1` by default** (`server/src/index.js`): production keeps `0.0.0.0` via `NODE_ENV=production`. `HOST` env var added as opt-in escape hatch for LAN testing. Closes the LAN-exposure compounding-risk with the local `APP_PASSWORD="password"` + shared Railway DB.
-  - Several "pending issue" entries that turned out not to be real bugs were verified-and-removed from the list (Dashboard Transfer In/Out grouping, Category delete/merge UI formatting).
-- **Transactions summary count fix** (`85a28fc`) — the count tile now uses `nonTransfer.length`, matching the spending/income filter. The client `SummaryCards` also loads `excludedDescriptions` from `/api/settings` so user-edited patterns apply on both pages. `isTransferTransaction(t, patterns?)` gained an optional patterns arg.
-- **Category override system** (`addd6c0`) — `CategoryRule` model + per-transaction `Transaction.categoryOverride` + `effectiveCategory` computed server-side. `PATCH /api/transactions/:id/category` with `applyToAll`. Dashboard + Budgets aggregates refactored from SQL to in-memory to honor `effectiveCategory`. Split transactions are guarded everywhere: PATCH rejects them with 400; Plaid sync won't auto-apply a rule to a split txn; `effectiveCategory` is null for splits; aggregations use `split.category` for splits.
-- **Merchant override system** (`11558d5`) — same shape, for merchant display name. `displayName` computed server-side with precedence `merchantOverride > rule > merchantName > description`.
-- **Settings system** (`bc7b76e`) — Category + AppSetting models, the whole Settings page, category management (rename/delete/merge with cascade), excluded descriptions editable and dynamic, bill defaults, accounts section duplicated here.
-- **Description-based transfer exclusion** (`17d866e`) — `EXCLUDED_DESCRIPTIONS` constant + SoFi Round Ups recategorization script.
-- **Bills feature** — payment detection window + status enrichment + Link payment modal + match keyword / linked transaction / budget-category linkage.
-- **Transaction splits** — `SplitEditorModal`, sum-must-equal-total validation, budget aggregation uses splits.
-- **Plaid enhancement** — balances, merchant names, logos, pending flag. Reconnect flow via Plaid Link update mode for `ITEM_LOGIN_REQUIRED`.
-- **Mobile redesign** — `BottomNav`, responsive layouts, `PageShell` mobile Settings gear.
+- **Dashboard derived-row fixes** (`727c65f`) — the Plan refactor made `/api/dashboard` return rollup rows with `id: null` on every row and `category: null` for the uncategorized group. `key={b.id}` gave all rows the identical React key (duplicate-key warning, possible row duplication/omission); `formatCategory(budget.category)` rendered a blank label. Both guarded. `6e96abd` had fixed the Plan page but missed this widget.
+- **Plan unification** (`61fbc5e` → `b624ac9`) — replaced `Bill` + `Budget` with a single `PlannedItem`; collapsed `/budgets` and `/bills` into the `/plan` tree; `billStatus.js` → `itemStatus.js` with `one_time` support; new `/api/plan` routes replacing `/api/budgets` and `/api/bills`; shared `Modal`, `format`, and `CategoryCombobox` extracted; sidebar 5 → 4 tabs; per-item transaction drill-in.
+- **Bill frequency + per-month amounts** (`92adcf9`) — introduced `monthlyAmounts[12]` as the source of truth for cost, `frequency` to drive the entry UI, and budgets computed as linked-items total + discretionary buffer. The foundation the Plan unification built on.
+- **Pending-issues sweep** (`c7a7f50`) — Prisma 5.22 → 6.19.3; Plaid cursor persistence via `PlaidItem` with `modified`/`removed` handling; bill matcher tightened to whole-word token matching; Vitest suites added to both packages; dev server bound to `127.0.0.1` by default.
+- **Category override system** (`addd6c0`) — `CategoryRule` + `Transaction.categoryOverride` + server-computed `effectiveCategory`. Split transactions guarded everywhere.
+- **Merchant override system** (`11558d5`) — same shape for merchant display name; `displayName` precedence `merchantOverride > rule > merchantName > description`.
+- **Settings system** (`bc7b76e`) — Category + AppSetting models, the Settings page, category management with cascade, editable exclusion patterns.
 
 ## Known issues / pending items
 
-- **Prisma 7 upgrade deferred** — currently on `^6.19.3`. Prisma 7 removed `url` from `schema.prisma`; connection URLs now live in `prisma.config.ts` and `PrismaClient` requires a driver adapter (`@prisma/adapter-pg` + `pg`). That refactor touches every `new PrismaClient()` site (10 route files) and needs full per-page verification. Stay on 6.x until there's a feature-driven reason to take it on.
-- **Test coverage limited to pure helpers** — Vitest is wired up in both packages with `npm test` (one-shot) and `npm run test:watch`. Current coverage is unit tests on pure money/aggregation logic in `server/src/lib/` (billStatus, effectiveCategory, excludedCategories, formatCategory, dashboardAggregates) and client `lib/` (formatCategory, excludedCategories) — 65 tests total. No DB-backed integration tests, HTTP endpoint tests, or React component tests yet.
-- **Local `.env` uses password `password`** — explicit throwaway for local dev; production must set a strong value in Railway. The dev server now binds to `127.0.0.1` only (see `HOST` env var) so the weak local password isn't reachable from the LAN, but if you ever set `HOST=0.0.0.0` for cross-device testing, change `APP_PASSWORD` first.
+- **Two dead scripts** — `backfillMatchKeyword.js` and `normalizeCategories.js` reference the dropped `Bill`/`Budget` tables and will throw. Delete or port them.
+- **`npm audit` findings** — 13 vulnerabilities on the server (6 moderate, 6 high, 1 critical) plus client findings, as of the last install. Not yet triaged; `audit fix --force` pulls breaking majors, so this wants its own pass with a test run after.
+- **Prisma 7 upgrade deferred** — currently `^6.19.3`. Prisma 7 removed `url` from `schema.prisma`; connection URLs move to `prisma.config.ts` and `PrismaClient` requires a driver adapter (`@prisma/adapter-pg` + `pg`). That touches every `new PrismaClient()` site. Stay on 6.x until a feature demands otherwise.
+- **Test coverage limited to pure helpers** — 110 tests across both packages, all unit tests on pure money/aggregation logic. No DB-backed integration tests, HTTP endpoint tests, or React component tests.
+- **Legacy scalar fields still present** — `PlannedItem.amount` is derived from `max(monthlyAmounts)` and exists only for payment-window matching. It is not a total and must not be summed.
+- **Local `.env` uses password `password`** — explicit throwaway. The dev server binds `127.0.0.1` only; if you ever set `HOST=0.0.0.0`, change `APP_PASSWORD` first.
 
 ## Operational notes
 
 A few behaviors that aren't bugs but are easy to forget:
 
 - After adding a new Plaid institution via `exchange-token` on production, run `POST /api/plaid/sync` once to pull transactions. Existing rules apply automatically.
-- After adding a new category rule or merchant rule, existing transactions remain untouched — the rule only auto-applies to newly synced transactions. To apply retroactively, use `applyToAll: true` on a `PATCH /:id/category` (or `/merchant`) call from the UI, or write a small one-off script.
+- After adding a category or merchant rule, existing transactions stay untouched — the rule only auto-applies to newly synced transactions. To apply retroactively, use `applyToAll: true` on a `PATCH /:id/category` (or `/merchant`) call from the UI.
+- A category disappears from the Plan page when no active item contributes a non-zero amount that month. That's intended: an annual bill only shows up in the month it lands.
 - Both Vercel and Railway deploy on every push to `main`. There is no staging environment.
